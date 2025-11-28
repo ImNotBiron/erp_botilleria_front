@@ -1,19 +1,22 @@
 import { Box } from "@mui/material";
-import Sidebar from "../components/Sidebar";
 import { Outlet } from "react-router-dom";
+import Sidebar from "../components/Sidebar";
 
 export default function VendedorLayout() {
   return (
-    <Box sx={{ display: "flex" }}>
-      <Sidebar />
+    <Box sx={{ display: "flex", height: "100vh", width: "100vw", overflow: "hidden" }}>
+      <Sidebar variant="vendedor" />
 
       <Box
+        component="main"
         sx={{
-          flexGrow: 1,
-          ml: "260px",
+          flex: 1,
           p: 3,
-          minHeight: "100vh",
+          overflowY: "auto",
           bgcolor: "background.default",
+          display: "flex",
+          flexDirection: "column",
+          gap: 2,
         }}
       >
         <Outlet />

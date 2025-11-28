@@ -1,3 +1,4 @@
+// src/App.tsx
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuthStore } from "./store/authStore";
 
@@ -10,9 +11,10 @@ import PosVentaPage from "./pages/vendedor/PosVentaPage";
 import MisVentasPage from "./pages/vendedor/MisVentasPage";
 
 export default function App() {
-  const { isAuth, rol } = useAuthStore();
+  const { isAuth, usuario } = useAuthStore();
+  const rol = usuario?.tipo_usuario ?? null;
 
-  // Si NO está autenticado → login
+  // 1) Si NO está autenticado → solo login
   if (!isAuth) {
     return (
       <Routes>
@@ -22,19 +24,20 @@ export default function App() {
     );
   }
 
-  // Si es ADMIN
+  // 2) ADMIN
   if (rol === "admin") {
     return (
       <Routes>
         <Route element={<AdminLayout />}>
           <Route path="/admin/dashboard" element={<DashboardPage />} />
+          {/* aquí después agregas más rutas admin */}
           <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
         </Route>
       </Routes>
     );
   }
 
-  // Si es VENDEDOR
+  // 3) VENDEDOR
   if (rol === "vendedor") {
     return (
       <Routes>
@@ -47,5 +50,10 @@ export default function App() {
     );
   }
 
-  return null;
+  // 4) Si por alguna razón no hay rol válido
+  return (
+    <Routes>
+      <Route path="*" element={<Navigate to="/login" replace />} />
+    </Routes>
+  );
 }

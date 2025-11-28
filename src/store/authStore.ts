@@ -1,12 +1,18 @@
 import { create } from "zustand";
 import { authApi } from "../api/authApi";
 
-type Rol = "admin" | "vendedor";
+type TipoUsuario = "admin" | "vendedor";
+
+interface Usuario {
+  id: number;
+  nombre_usuario: string;
+  rut: string;
+  tipo_usuario: TipoUsuario;
+}
 
 interface AuthState {
   isAuth: boolean;
-  rol: Rol | null;
-  nombre_usuario: string | null;
+  usuario: Usuario | null;
   loading: boolean;
 
   login: (rut: string) => Promise<boolean>;
@@ -15,8 +21,7 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>((set) => ({
   isAuth: false,
-  rol: null,
-  nombre_usuario: null,
+  usuario: null,
   loading: false,
 
   login: async (rut) => {
@@ -27,8 +32,12 @@ export const useAuthStore = create<AuthState>((set) => ({
 
       set({
         isAuth: true,
-        rol: data.usuario.tipo_usuario,
-        nombre_usuario: data.usuario.nombre_usuario,
+        usuario: {
+          id: data.usuario.id,
+          nombre_usuario: data.usuario.nombre_usuario,
+          rut: data.usuario.rut,
+          tipo_usuario: data.usuario.tipo_usuario,
+        },
         loading: false,
       });
 
@@ -43,8 +52,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   logout: () => {
     set({
       isAuth: false,
-      rol: null,
-      nombre_usuario: null,
+      usuario: null,
     });
   },
 }));
