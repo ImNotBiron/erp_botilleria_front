@@ -23,7 +23,7 @@ export interface ProductoOpcion {
   nombre: string;
 }
 
-interface ComboItemRow {
+export interface ComboItemRow {
   productoId: number | null;
   cantidad: string;
 }
@@ -41,7 +41,8 @@ interface ComboModalProps {
   onClose: () => void;
   onSave: (values: ComboFormValues) => void;
   productos: ProductoOpcion[];
-  promocion?: any | null; // si después quieres tiparlo mejor, se cambia acá
+  // viene desde GET /promociones/:id
+  promocion?: any | null;
 }
 
 export default function ComboModal({
@@ -103,7 +104,10 @@ export default function ComboModal({
     setPrecioError(false);
   };
 
-  const handleItemProductoChange = (index: number, value: ProductoOpcion | null) => {
+  const handleItemProductoChange = (
+    index: number,
+    value: ProductoOpcion | null
+  ) => {
     setItems((prev) =>
       prev.map((item, i) =>
         i === index ? { ...item, productoId: value ? value.id : null } : item
@@ -163,7 +167,7 @@ export default function ComboModal({
       </DialogTitle>
 
       <DialogContent sx={{ pt: 1 }}>
-        {/* Sección 1: Identificación */}
+        {/* 1. Identificación */}
         <Box sx={{ mb: 2 }}>
           <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
             1. Identificación del combo
@@ -216,14 +220,18 @@ export default function ComboModal({
 
         <Divider sx={{ my: 2 }} />
 
-        {/* Sección 2: Productos del combo */}
+        {/* 2. Productos del combo */}
         <Box sx={{ mb: 2 }}>
           <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
             2. Productos del combo
           </Typography>
 
           {itemsError && (
-            <Typography variant="caption" color="error" sx={{ mb: 1, display: "block" }}>
+            <Typography
+              variant="caption"
+              color="error"
+              sx={{ mb: 1, display: "block" }}
+            >
               Debes agregar al menos un producto con cantidad mayor a 0.
             </Typography>
           )}
@@ -251,11 +259,7 @@ export default function ComboModal({
                       handleItemProductoChange(index, val)
                     }
                     renderInput={(params) => (
-                      <TextField
-                        {...params}
-                        label="Producto"
-                        size="small"
-                      />
+                      <TextField {...params} label="Producto" size="small" />
                     )}
                   />
 
@@ -290,7 +294,7 @@ export default function ComboModal({
 
         <Divider sx={{ my: 2 }} />
 
-        {/* Sección 3: Estado */}
+        {/* 3. Estado */}
         <Box>
           <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
             3. Estado

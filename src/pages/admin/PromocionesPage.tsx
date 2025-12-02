@@ -19,14 +19,15 @@ import EditIcon from "@mui/icons-material/Edit";
 import BlockIcon from "@mui/icons-material/Block";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 
-import { promocionesApi } from "../../api/promocionesApi";
-import type { PromocionPayload } from "../../api/promocionesApi";
+import {
+  promocionesApi,
+  type PromocionPayload,
+} from "../../api/promocionesApi";
 import { productosApi } from "../../api/productosApi";
 
-import ComboModal from "../../components/promociones/ComboModal";
-import type {
-  ComboFormValues,
-  ProductoOpcion,
+import ComboModal, {
+  type ComboFormValues,
+  type ProductoOpcion,
 } from "../../components/promociones/ComboModal";
 
 interface PromocionListaItem {
@@ -35,7 +36,6 @@ interface PromocionListaItem {
   precio_promocion: number;
   activa: 0 | 1;
   total_productos?: number;
-  // otros campos que puedas tener...
 }
 
 export default function PromocionesPage() {
@@ -50,15 +50,12 @@ export default function PromocionesPage() {
 
   const cargarPromos = async () => {
     const data = await promocionesApi.getAll();
-    // Asumimos que el backend trae algo como:
-    // [{ id, nombre, precio_promocion, activa, total_productos }]
     setPromos(data);
     setFiltradas(data);
   };
 
   const cargarProductos = async () => {
     const data = await productosApi.getAll();
-    // Asumimos que los productos vienen con id y nombre_producto
     const opciones: ProductoOpcion[] = data.map((p: any) => ({
       id: p.id,
       nombre: p.nombre_producto ?? p.nombre ?? `Producto ${p.id}`,
@@ -74,9 +71,7 @@ export default function PromocionesPage() {
   useEffect(() => {
     const texto = busqueda.toLowerCase();
     setFiltradas(
-      promos.filter((p) =>
-        (p.nombre ?? "").toLowerCase().includes(texto)
-      )
+      promos.filter((p) => (p.nombre ?? "").toLowerCase().includes(texto))
     );
   }, [busqueda, promos]);
 
@@ -86,7 +81,6 @@ export default function PromocionesPage() {
   };
 
   const abrirEditar = async (promo: PromocionListaItem) => {
-    // Obtenemos la promo con detalle desde el backend
     const detalle = await promocionesApi.getById(promo.id);
     setPromoEditar(detalle);
     setModalOpen(true);
@@ -205,12 +199,19 @@ export default function PromocionesPage() {
                   )}
                 </TableCell>
                 <TableCell align="right">
-                  <IconButton size="small" onClick={() => void abrirEditar(promo)}>
+                  <IconButton
+                    size="small"
+                    onClick={() => {
+                      void abrirEditar(promo);
+                    }}
+                  >
                     <EditIcon fontSize="small" />
                   </IconButton>
                   <IconButton
                     size="small"
-                    onClick={() => void toggleEstado(promo)}
+                    onClick={() => {
+                      void toggleEstado(promo);
+                    }}
                     sx={{ ml: 1 }}
                   >
                     {promo.activa ? (
