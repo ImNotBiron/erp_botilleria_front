@@ -1,14 +1,14 @@
 import { Box, Typography } from "@mui/material";
 
-export default function MisVentasPage() {
+export default function StockPage() {
   return (
     <Box>
       <Typography variant="h4" fontWeight={700} mb={2}>
-        Mis Ventas
+        Stock
       </Typography>
 
       <Typography color="text.secondary">
-        Historial de ventas del vendedor.
+        Aquí verás existencias y actualizaciones de stock.
       </Typography>
     </Box>
   );

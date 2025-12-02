@@ -1,46 +1,109 @@
 import { createTheme, ThemeProvider, CssBaseline } from "@mui/material";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import { deepmerge } from "@mui/utils";
+import { useThemeStore } from "../store/themeStore";
 
 export default function AppThemeProvider({ children }: { children: React.ReactNode }) {
-  const [mode, setMode] = useState<"light" | "dark">("light");
+  const mode = useThemeStore((s) => s.mode);
 
-  // Futuro: mover este toggle a un store global
-  const theme = useMemo(
-    () =>
-      createTheme({
-        palette: {
-          mode,
-          ...(mode === "light"
-            ? {
-                primary: { main: "#4f46e5" },     // Indigo moderno
-                secondary: { main: "#0ea5e9" },   // Celestito minimal
-                background: {
-                  default: "#f3f4f6",            // Gris claro minimal
-                  paper: "#ffffff",              // Papel clásico
-                },
-              }
-            : {
-                primary: { main: "#818cf8" },    // Indigo suave
-                secondary: { main: "#38bdf8" },  // Azul eléctrico minimal
-                background: {
-                  default: "#0f172a",            // Azul muy oscuro
-                  paper: "#1e293b",              // Azul gráfico
-                },
-                text: {
-                  primary: "#e2e8f0",
-                  secondary: "#94a3b8",
-                },
-              }),
+  const lightPalette = {
+    palette: {
+      mode: "light",
+      primary: { main: "#4f46e5" },
+      secondary: { main: "#0ea5e9" },
+      background: {
+        default: "#f3f4f6",
+        paper: "#ffffff",
+      },
+      text: {
+        primary: "#1e293b",
+        secondary: "#475569",
+      },
+      divider: "rgba(0,0,0,0.12)",
+    },
+  };
+
+  const darkPalette = {
+    palette: {
+      mode: "dark",
+      primary: { main: "#818cf8" },
+      secondary: { main: "#38bdf8" },
+      background: {
+        default: "#0f172a",
+        paper: "#1e293b",
+      },
+      text: {
+        primary: "#e2e8f0",
+        secondary: "#94a3b8",
+      },
+      divider: "rgba(255,255,255,0.18)",
+    },
+  };
+
+  const baseTheme = {
+    shape: { borderRadius: 14 },
+    typography: {
+      fontFamily: `"Inter", "Roboto", sans-serif`,
+      button: { textTransform: "none", fontWeight: 600 },
+    },
+    components: {
+      MuiCssBaseline: {
+        styleOverrides: {
+          body: { transition: "background-color 0.25s ease, color 0.25s ease" },
         },
-        shape: {
-          borderRadius: 14,
+      },
+
+      MuiDrawer: {
+        styleOverrides: {
+          paper: {
+            transition: "background-color 0.25s ease, width 0.25s ease",
+          },
         },
-      }),
-    [mode]
-  );
+      },
+
+      MuiPaper: {
+        styleOverrides: {
+          root: {
+            transition: "background-color 0.25s ease, border-color 0.25s ease",
+          },
+        },
+      },
+
+      MuiListItemButton: {
+        styleOverrides: {
+          root: {
+            transition: "background-color 0.2s ease, color 0.2s ease",
+            borderRadius: "10px",
+          },
+        },
+      },
+    },
+  };
+
+  const finalTheme = useMemo(() => {
+    const palette = mode === "light" ? lightPalette : darkPalette;
+    const merged = deepmerge(baseTheme, palette);
+
+    // 🎨 BACKDROP real (sin romper tipado)
+    merged.components!.MuiDrawer!.styleOverrides!.paper = {
+      ...merged.components!.MuiDrawer!.styleOverrides!.paper,
+      ...(mode === "dark"
+        ? { backdropFilter: "blur(6px)", backgroundColor: "rgba(15,23,42,0.55)" }
+        : { backdropFilter: "none", backgroundColor: "rgba(255,255,255,0.75)" }),
+    };
+
+    merged.components!.MuiPaper!.styleOverrides!.root = {
+      ...merged.components!.MuiPaper!.styleOverrides!.root,
+      ...(mode === "dark"
+        ? { backdropFilter: "blur(3px)" }
+        : { backdropFilter: "none" }),
+    };
+
+    return createTheme(merged);
+  }, [mode]);
 
   return (
-    <ThemeProvider theme={theme}>
+    <ThemeProvider theme={finalTheme}>
       <CssBaseline />
       {children}
     </ThemeProvider>

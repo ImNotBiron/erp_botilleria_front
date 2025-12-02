@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { authApi } from "../api/authApi";
+import {api} from "../api/api";
 
 type TipoUsuario = "admin" | "vendedor";
 
@@ -13,6 +14,7 @@ interface Usuario {
 interface AuthState {
   isAuth: boolean;
   usuario: Usuario | null;
+  token: string | null;     // <--- NUEVO
   loading: boolean;
 
   login: (rut: string) => Promise<boolean>;
@@ -22,6 +24,7 @@ interface AuthState {
 export const useAuthStore = create<AuthState>((set) => ({
   isAuth: false,
   usuario: null,
+  token: null,              // <--- NUEVO
   loading: false,
 
   login: async (rut) => {
@@ -38,6 +41,7 @@ export const useAuthStore = create<AuthState>((set) => ({
           rut: data.usuario.rut,
           tipo_usuario: data.usuario.tipo_usuario,
         },
+        token: data.token,    // <--- IMPORTANTE: guardar token
         loading: false,
       });
 
@@ -49,10 +53,21 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  logout: () => {
-    set({
-      isAuth: false,
-      usuario: null,
-    });
-  },
+  logout: async () => {
+  try {
+    const { token } = useAuthStore.getState();
+
+    if (token) {
+      await api.post("/auth/logout"); // backend apaga en_linea
+    }
+  } catch (err) {
+    console.error("Error al cerrar sesión:", err);
+  }
+
+  set({
+    isAuth: false,
+    usuario: null,
+    token: null,
+  });
+},
 }));

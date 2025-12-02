@@ -1,14 +1,14 @@
 import { Box, Typography } from "@mui/material";
 
-export default function MisVentasPage() {
+export default function CajaPage() {
   return (
     <Box>
       <Typography variant="h4" fontWeight={700} mb={2}>
-        Mis Ventas
+        Caja
       </Typography>
 
       <Typography color="text.secondary">
-        Historial de ventas del vendedor.
+        Módulo de caja en desarrollo.
       </Typography>
     </Box>
   );

@@ -1,52 +1,96 @@
-import { Box, Grid, Paper, Typography, Stack, Button } from "@mui/material";
+import { Box, Typography, Grid, Paper } from "@mui/material";
+import {
+  IconPackage,
+  IconUsers,
+  IconTruck,
+  IconAlertTriangle
+} from "@tabler/icons-react";
+import { useTheme } from "@mui/material/styles";
 
 export default function DashboardPage() {
+  const theme = useTheme();
+
+  const stats = [
+    { label: "Productos", value: "0", icon: <IconPackage size={28} stroke={1.7} /> },
+    { label: "Usuarios", value: "0", icon: <IconUsers size={28} stroke={1.7} /> },
+    { label: "Proveedores", value: "0", icon: <IconTruck size={28} stroke={1.7} /> },
+    {
+      label: "Stock Crítico",
+      value: "0",
+      icon: <IconAlertTriangle size={28} stroke={1.7} color={theme.palette.warning.main} />,
+    },
+  ];
+
   return (
     <Box>
-      <Typography variant="h5" sx={{ fontWeight: 600, mb: 2 }}>
-        Resumen del día
+      {/* HEADER */}
+      <Typography variant="h4" fontWeight={700} mb={1}>
+        Dashboard
+      </Typography>
+      <Typography variant="body2" color="text.secondary" mb={4}>
+        Resumen general del sistema.
       </Typography>
 
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={12} md={3}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle2">Ventas totales</Typography>
-            <Typography variant="h5">$ 0</Typography>
-          </Paper>
-        </Grid>
+      {/* CARDS */}
+      <Grid container spacing={3}>
+        {stats.map((s) => (
+          <Grid item xs={12} sm={6} md={3} key={s.label}>
+            <Paper
+              elevation={0}
+              sx={{
+                p: 3,
+                borderRadius: 4,
+                display: "flex",
+                flexDirection: "column",
+                gap: 1.5,
+                bgcolor: theme.palette.background.paper,
+                border: `1px solid ${theme.palette.divider}`,
+                transition: "0.25s",
+                "&:hover": {
+                  transform: "translateY(-4px)",
+                  boxShadow:
+                    theme.palette.mode === "dark"
+                      ? "0 4px 16px rgba(0,0,0,0.35)"
+                      : "0 4px 16px rgba(0,0,0,0.12)",
+                },
+              }}
+            >
+              {/* Icono */}
+              <Box sx={{ color: theme.palette.text.secondary }}>{s.icon}</Box>
 
-        <Grid item xs={12} md={3}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle2">Tickets</Typography>
-            <Typography variant="h5">0</Typography>
-          </Paper>
-        </Grid>
+              {/* Nombre */}
+              <Typography variant="body2" color="text.secondary">
+                {s.label}
+              </Typography>
 
-        <Grid item xs={12} md={3}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle2">Caja</Typography>
-            <Typography variant="h5">$ 0</Typography>
-          </Paper>
-        </Grid>
-
-        <Grid item xs={12} md={3}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle2">Stock crítico</Typography>
-            <Typography variant="h5">0</Typography>
-          </Paper>
-        </Grid>
+              {/* Valor */}
+              <Typography variant="h5" fontWeight={700}>
+                {s.value}
+              </Typography>
+            </Paper>
+          </Grid>
+        ))}
       </Grid>
 
-      <Typography variant="subtitle1" sx={{ fontWeight: 500, mb: 1 }}>
-        Accesos rápidos
-      </Typography>
-
-      <Stack direction="row" spacing={1.5} flexWrap="wrap">
-        <Button variant="contained">Caja</Button>
-        <Button variant="outlined">Productos</Button>
-        <Button variant="outlined">Promociones</Button>
-        <Button variant="outlined">Usuarios</Button>
-      </Stack>
+      {/* BLOQUE FUTURO: GRÁFICOS Y REPORTES */}
+      <Box mt={5}>
+        <Paper
+          elevation={0}
+          sx={{
+            p: 4,
+            borderRadius: 4,
+            border: `1px solid ${theme.palette.divider}`,
+            textAlign: "center",
+          }}
+        >
+          <Typography variant="h6" fontWeight={600} mb={1}>
+            Gráficos de Ventas (próximamente)
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Aquí mostraremos las ventas por día, semana y mes.
+          </Typography>
+        </Paper>
+      </Box>
     </Box>
   );
 }
