@@ -98,6 +98,7 @@ const parseCLPToNumber = (value: string): number => {
   return numeric ? Number(numeric) : 0;
 };
 
+
 const formatFechaTime = (value: string | null | undefined) =>
   value ? new Date(value).toLocaleString("es-CL") : "-";
 
@@ -165,71 +166,25 @@ export default function CajaPage() {
     setLoading(false);
   };
 
-//   const cargarHistorial = async () => {
-//     try {
-//       setLoadingHistorial(true);
-//       setErrorHistorial(null);
-
-//       const res = await api.get("/caja/historial");
-//       const lista = (res.data && res.data.historial) || [];
-//       setHistorial(lista);
-//     } catch (err: any) {
-//       console.error(err);
-//       setErrorHistorial(
-//         err?.response?.data?.error || "Error al cargar historial de cajas."
-//       );
-//     } finally {
-//       setLoadingHistorial(false);
-//     }
-//   };
-
-//   const abrirDetalleSesion = async (id: number) => {
-//   setDetalleOpen(true);
-//   setDetalleLoading(true);
-//   setDetalleError(null);
-//   setDetalleSesion(null);
-//   setDetalleMovimientos([]);
-
-//   try {
-//     const res = await api.get(`/caja/${id}`);
-//     setDetalleSesion(res.data.caja as CajaSesion);
-//     setDetalleMovimientos(res.data.movimientos || []);
-//   } catch (err: any) {
-//     console.error(err);
-//     setDetalleError(
-//       err?.response?.data?.error || "Error al cargar detalles de la sesión de caja."
-//     );
-//   } finally {
-//     setDetalleLoading(false);
-//   }
-// };
-
-
   useEffect(() => {
     cargarEstado();
   }, []);
 
-  //   useEffect(() => {
-  //   if (openHistorial) {
-  //     cargarHistorial();
-  //   }
-  // }, [openHistorial]);
-
-
   /* ===== APERTURA ===== */
-  const abrirCaja = async () => {
-    try {
-      await api.post("/caja/abrir", {
-        inicial_local: initLocal || 0,
-        inicial_vecina: initVecina || 0,
-      });
-      setInitLocal("");
-      setInitVecina("");
-      await cargarEstado();
-    } catch (err: any) {
-      alert(err.response?.data?.error || "Error al abrir caja.");
-    }
-  };
+ const abrirCaja = async () => {
+  try {
+    await api.post("/caja/abrir", {
+      inicial_local: parseCLPToNumber(initLocal),
+      inicial_vecina: parseCLPToNumber(initVecina),
+    });
+    setInitLocal("");
+    setInitVecina("");
+    await cargarEstado();
+  } catch (err: any) {
+    alert(err.response?.data?.error || "Error al abrir caja.");
+  }
+};
+
 
   /* ===== MOVIMIENTO ===== */
   const guardarMovimiento = async () => {
@@ -305,22 +260,31 @@ export default function CajaPage() {
           />
           <CardContent>
             <Stack spacing={2}>
-              <TextField
-                label="Efectivo inicial local"
-                type="number"
-                value={initLocal}
-                onChange={
-                  (e) => setInitLocal(e.target.value)}
-                fullWidth
-              />
-              <TextField
-                label="Cupo inicial Caja Vecina"
-                type="number"
-                value={initVecina}
-                onChange={(e) => setInitVecina(e.target.value)}
-                fullWidth
-              />
+            <TextField
+              label="Efectivo inicial local"
+              value={initLocal}
+              onChange={(e) => {
+                const raw = e.target.value.replace(/\D/g, ""); // solo números
+                const formatted = raw
+                  ? new Intl.NumberFormat("es-CL").format(Number(raw))
+                  : "";
+                setInitLocal(formatted);
+              }}
+              fullWidth
+            />
 
+            <TextField
+              label="Cupo inicial Caja Vecina"
+              value={initVecina}
+              onChange={(e) => {
+                const raw = e.target.value.replace(/\D/g, "");
+                const formatted = raw
+                  ? new Intl.NumberFormat("es-CL").format(Number(raw))
+                  : "";
+                setInitVecina(formatted);
+              }}
+              fullWidth
+            />
               <Alert
                 icon={<InfoOutlinedIcon fontSize="small" />}
                 severity="info"
