@@ -21,6 +21,7 @@ import {
   Chip,
   Divider,
   Alert,
+  CircularProgress,
 } from "@mui/material";
 
 import PaymentsIcon from "@mui/icons-material/Payments";
@@ -32,8 +33,12 @@ import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import PointOfSaleIcon from "@mui/icons-material/PointOfSale";
+import HistoryIcon from "@mui/icons-material/History";
+
 
 import { api } from "../../api/api";
+import HistorialCajaModal from "../../components/caja/HistorialCajaModal";
+
 
 interface CajaSesion {
   id: number;
@@ -62,6 +67,8 @@ interface CajaSesion {
   tickets_credito: number;
   tickets_transferencia: number;
   estado: "ABIERTA" | "CERRADA";
+  usuario_apertura?: string | null;
+  usuario_cierre?: string | null;
 }
 
 interface MovimientoCaja {
@@ -91,6 +98,8 @@ const parseCLPToNumber = (value: string): number => {
   return numeric ? Number(numeric) : 0;
 };
 
+const formatFechaTime = (value: string | null | undefined) =>
+  value ? new Date(value).toLocaleString("es-CL") : "-";
 
 
 // Mensaje para diferencias de caja en el modal de cierre
@@ -126,6 +135,17 @@ export default function CajaPage() {
   const [realLocal, setRealLocal] = useState("");
   const [realVecina, setRealVecina] = useState("");
 
+  // Modal Historial Sesiones Cajas 
+  const [openHistorial, setOpenHistorial] = useState(false);
+  // const [historial, setHistorial] = useState<CajaSesion[]>([]);
+  // const [loadingHistorial, setLoadingHistorial] = useState(false);
+  // const [errorHistorial, setErrorHistorial] = useState<string | null>(null);
+  // const [detalleOpen, setDetalleOpen] = useState(false);
+  // const [detalleSesion, setDetalleSesion] = useState<CajaSesion | null>(null);
+  // const [detalleMovimientos, setDetalleMovimientos] = useState<MovimientoCaja[]>([]);
+  // const [detalleLoading, setDetalleLoading] = useState(false);
+  // const [detalleError, setDetalleError] = useState<string | null>(null);
+
   const cargarEstado = async () => {
     setLoading(true);
     try {
@@ -145,9 +165,56 @@ export default function CajaPage() {
     setLoading(false);
   };
 
+//   const cargarHistorial = async () => {
+//     try {
+//       setLoadingHistorial(true);
+//       setErrorHistorial(null);
+
+//       const res = await api.get("/caja/historial");
+//       const lista = (res.data && res.data.historial) || [];
+//       setHistorial(lista);
+//     } catch (err: any) {
+//       console.error(err);
+//       setErrorHistorial(
+//         err?.response?.data?.error || "Error al cargar historial de cajas."
+//       );
+//     } finally {
+//       setLoadingHistorial(false);
+//     }
+//   };
+
+//   const abrirDetalleSesion = async (id: number) => {
+//   setDetalleOpen(true);
+//   setDetalleLoading(true);
+//   setDetalleError(null);
+//   setDetalleSesion(null);
+//   setDetalleMovimientos([]);
+
+//   try {
+//     const res = await api.get(`/caja/${id}`);
+//     setDetalleSesion(res.data.caja as CajaSesion);
+//     setDetalleMovimientos(res.data.movimientos || []);
+//   } catch (err: any) {
+//     console.error(err);
+//     setDetalleError(
+//       err?.response?.data?.error || "Error al cargar detalles de la sesión de caja."
+//     );
+//   } finally {
+//     setDetalleLoading(false);
+//   }
+// };
+
+
   useEffect(() => {
     cargarEstado();
   }, []);
+
+  //   useEffect(() => {
+  //   if (openHistorial) {
+  //     cargarHistorial();
+  //   }
+  // }, [openHistorial]);
+
 
   /* ===== APERTURA ===== */
   const abrirCaja = async () => {
@@ -219,6 +286,7 @@ export default function CajaPage() {
           minHeight: "70vh",
         }}
       >
+
         <Typography variant="h4" fontWeight={700} mb={3} textAlign="center">
           Apertura de Caja
         </Typography>
@@ -227,7 +295,7 @@ export default function CajaPage() {
           sx={{
             width: "100%",
             maxWidth: 480,
-            borderRadius: 4,
+            borderRadius: 1,
             boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
           }}
         >
@@ -241,7 +309,8 @@ export default function CajaPage() {
                 label="Efectivo inicial local"
                 type="number"
                 value={initLocal}
-                onChange={(e) => setInitLocal(e.target.value)}
+                onChange={
+                  (e) => setInitLocal(e.target.value)}
                 fullWidth
               />
               <TextField
@@ -271,10 +340,24 @@ export default function CajaPage() {
                 >
                   Abrir caja
                 </Button>
+
+                <Button
+                  variant="text"
+                  fullWidth
+                  sx={{ mt: 1, fontSize: "0.8rem" }}
+                  onClick={() => setOpenHistorial(true)}
+                >
+                  Ver historial de cajas
+                </Button>
+
               </Box>
             </Stack>
           </CardContent>
         </Card>
+             <HistorialCajaModal
+              open={openHistorial}
+              onClose={() => setOpenHistorial(false)}
+            />
       </Box>
     );
   }
@@ -378,6 +461,14 @@ const esperadoVecinaCalc =
         spacing={2}
         width={{ xs: "100%", md: "auto" }}
       >
+        <Button
+          fullWidth
+          variant="outlined"
+          onClick={() => setOpenHistorial(true)}
+        >
+          Historial
+        </Button>
+
         <Button
           fullWidth
           variant="outlined"
@@ -939,6 +1030,12 @@ const esperadoVecinaCalc =
           </Button>
         </DialogActions>
       </Dialog>
+
+      <HistorialCajaModal
+  open={openHistorial}
+  onClose={() => setOpenHistorial(false)}
+/>
+
     </Box>
   );
 }
