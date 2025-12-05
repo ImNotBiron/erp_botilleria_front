@@ -16,6 +16,10 @@ import {
   Divider,
   MenuItem,
   Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from "@mui/material";
 
 import SearchIcon from "@mui/icons-material/Search";
@@ -25,16 +29,16 @@ import AddIcon from "@mui/icons-material/Add";
 import RemoveIcon from "@mui/icons-material/Remove";
 import DeleteIcon from "@mui/icons-material/DeleteForever";
 
-import { api } from "../../api/api"; // ← ajusta la ruta si es distinta
+import { api } from "../../api/api";
 
 import { PromoScannerModalPOS } from "../../components/pos/PromoScannerModalPos";
 import type { PromoCartItem } from "../../components/pos/PromoScannerModalPos";
 
-type MedioPago = "EFECTIVO" | "DEBITO" | "CREDITO" | "TRANSFERENCIA";
+type MedioPago = "EFECTIVO" | "GIRO" | "DEBITO" | "CREDITO" | "TRANSFERENCIA";
 
 type ItemCarrito = {
-  id: string;          // id interno del carrito
-  id_producto: number; // id real de la BD
+  id: string;
+  id_producto: number;
   codigo: string;
   nombre: string;
   precio: number;
@@ -50,7 +54,6 @@ type Pago = {
   monto: number;
 };
 
-// Lo que devuelve el backend al buscar un producto
 interface ProductoApi {
   id: number;
   codigo_producto: string;
@@ -87,8 +90,9 @@ export default function PosVentaPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Modal promo scanner
+  // Promo / confirmación
   const [promoOpen, setPromoOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   // ====================
   // Totales
@@ -101,17 +105,29 @@ export default function PosVentaPage() {
   const totalItems = carrito.reduce((acc, item) => acc + item.cantidad, 0);
 
   const totalPagos = pagos.reduce((acc, p) => acc + p.monto, 0);
-  const saldo = total - totalPagos; // puede ser < 0 si se pasa
+  const saldo = total - totalPagos;
 
   const totalExento = carrito.reduce(
-  (acc, item) => (item.exento ? acc + subtotalItem(item) : acc),
-  0
-);
-const totalAfecto = total - totalExento;
+    (acc, item) => (item.exento ? acc + subtotalItem(item) : acc),
+    0
+  );
+  const totalAfecto = total - totalExento;
 
+  const vuelto = saldo < 0 ? Math.abs(saldo) : 0;
+  const tieneEfectivoOGiro = pagos.some(
+    (p) => p.tipo === "EFECTIVO" || p.tipo === "GIRO"
+  );
+
+  const puedeCobrar =
+  carrito.length > 0 &&
+  pagos.length > 0 &&
+  // saldo <= 0  → cubre el total o se pasó (hay vuelto)
+  saldo <= 0 &&
+  // si hay vuelto (saldo < 0), DEBE existir efectivo o giro
+  (saldo >= 0 || tieneEfectivoOGiro);
 
   // ====================
-  // Focus para la pistola
+  // Focus pistola
   // ====================
 
   useEffect(() => {
@@ -125,17 +141,16 @@ const totalAfecto = total - totalExento;
   };
 
   // ====================
-  // Buscar producto en el back
+  // API productos
   // ====================
 
   const buscarProductoPorCodigo = async (codigo: string): Promise<ProductoApi> => {
-    // Ajusta la ruta a tu API real de productos
     const res = await api.get(`/productos/codigo/${codigo}`);
     return res.data as ProductoApi;
   };
 
   // ====================
-  // Manejo carrito
+  // Carrito
   // ====================
 
   const handleAgregarProductoPorCodigo = async (
@@ -195,13 +210,12 @@ const totalAfecto = total - totalExento;
     refocusScanner();
   };
 
-  // 🔹 Cuando el modal de promo devuelve los productos del combo
   const handlePromoAddToCart = (promoItems: PromoCartItem[]) => {
     setCarrito((prev) => [
       ...prev,
       ...promoItems.map((p) => ({
         id: crypto.randomUUID(),
-        id_producto: p.id, // importante para el back
+        id_producto: p.id,
         codigo: p.codigo_producto,
         nombre: p.nombre_producto,
         precio: p.precio_venta,
@@ -215,16 +229,105 @@ const totalAfecto = total - totalExento;
   };
 
   // ====================
+  // Validación de pago actual (para input rojo y deshabilitar "+")
+  // ====================
+
+  const obtenerErrorPagoActual = (): string | null => {
+    const monto = Number(nuevoMontoPago);
+    if (!monto || monto <= 0) return null; // no molestamos si no hay monto
+
+    const saldoPendiente = total - totalPagos;
+    if (saldoPendiente <= 0) {
+      return "No hay saldo pendiente por cobrar.";
+    }
+
+    if (nuevoTipoPago === "EFECTIVO" || nuevoTipoPago === "GIRO") {
+      // efectivo/giro siempre OK, aunque genere vuelto
+      return null;
+    }
+
+    // Medios NO efectivos (débito/crédito/transferencia)
+
+    // 1) No puede pagar más que el saldo pendiente
+    if (monto > saldoPendiente) {
+      return "Con débito/crédito/transferencia no puedes ingresar un monto mayor al saldo pendiente ni generar vuelto.";
+    }
+
+    // 2) No puede superar el monto afecto
+    const pagosNoEfectivoPrevios = pagos
+      .filter((p) => p.tipo !== "EFECTIVO" && p.tipo !== "GIRO")
+      .reduce((acc, p) => acc + p.monto, 0);
+
+    const maxNoEfectivo = totalAfecto;
+    const nuevoTotalNoEfectivo = pagosNoEfectivoPrevios + monto;
+
+    if (nuevoTotalNoEfectivo > maxNoEfectivo) {
+      const maxDisponible = Math.max(
+        maxNoEfectivo - pagosNoEfectivoPrevios,
+        0
+      );
+
+      if (maxDisponible > 0) {
+        return `No puedes pagar todo con ${nuevoTipoPago} porque hay productos exentos. El máximo que puedes pagar con este medio es ${formatCLP(
+          maxDisponible
+        )}.`;
+      }
+      return "Ya no puedes pagar más con débito/crédito/transferencia: el resto debe ser EFECTIVO o GIRO porque hay productos exentos.";
+    }
+
+    return null;
+  };
+
+  const errorPagoActual = obtenerErrorPagoActual();
+  const montoIngresadoValido =
+    !!nuevoMontoPago && (!errorPagoActual || nuevoTipoPago === "EFECTIVO" || nuevoTipoPago === "GIRO");
+
+  // ====================
   // Pagos múltiples
   // ====================
 
-  const handleAgregarPago = () => {
-    setError(null);
-    setSuccess(null);
+  const handleLlenarConTotal = () => {
+    const saldoPendiente = total - totalPagos;
+    if (saldoPendiente <= 0) {
+      setNuevoMontoPago("");
+      refocusScanner();
+      return;
+    }
 
+    if (nuevoTipoPago === "EFECTIVO" || nuevoTipoPago === "GIRO") {
+      setNuevoMontoPago(String(saldoPendiente));
+      refocusScanner();
+      return;
+    }
+
+    const pagosNoEfectivoPrevios = pagos
+      .filter((p) => p.tipo !== "EFECTIVO" && p.tipo !== "GIRO")
+      .reduce((acc, p) => acc + p.monto, 0);
+
+    const maxNoEfectivo = totalAfecto;
+    const maxExtraNoEfectivo = maxNoEfectivo - pagosNoEfectivoPrevios;
+    const sugerido = Math.min(saldoPendiente, maxExtraNoEfectivo);
+
+    if (sugerido > 0) {
+      setNuevoMontoPago(String(sugerido));
+    } else {
+      setNuevoMontoPago("");
+    }
+
+    refocusScanner();
+  };
+
+  const handleAgregarPago = () => {
+    setSuccess(null);
     const monto = Number(nuevoMontoPago);
     if (!monto || monto <= 0) {
       setError("Ingresa un monto válido para el pago.");
+      return;
+    }
+
+    const msg = obtenerErrorPagoActual();
+    if (msg) {
+      setError(msg);
       return;
     }
 
@@ -245,104 +348,127 @@ const totalAfecto = total - totalExento;
     refocusScanner();
   };
 
-  // ⚡ Botón "Llenar con total"
- const handleLlenarConTotal = () => {
-  const saldoPendiente = total - totalPagos;
-  if (saldoPendiente <= 0) {
-    setNuevoMontoPago("");
-    refocusScanner();
-    return;
-  }
-
-  // Si es efectivo o giro, puede pagar todo
-  if (nuevoTipoPago === "EFECTIVO" || nuevoTipoPago === "GIRO") {
-    setNuevoMontoPago(String(saldoPendiente));
-    refocusScanner();
-    return;
-  }
-
-  // Medios NO efectivos (débito, crédito, transferencia, etc.)
-  const pagosNoEfectivo = pagos
-    .filter((p) => p.tipo !== "EFECTIVO" && p.tipo !== "GIRO")
-    .reduce((acc, p) => acc + p.monto, 0);
-
-  // Máximo que se puede pagar con tarjeta/transfer: solo lo afecto
-  const maxNoEfectivo = totalAfecto;
-  const maxExtraNoEfectivo = maxNoEfectivo - pagosNoEfectivo;
-
-  const sugerido = Math.min(saldoPendiente, maxExtraNoEfectivo);
-
-  if (sugerido > 0) {
-    setNuevoMontoPago(String(sugerido));
-  } else {
-    setNuevoMontoPago("");
-  }
-
-  refocusScanner();
-};
-
-
   // ====================
-  // Cobrar (ahora contra el back)
+  // Confirmación y Cobro
   // ====================
 
-  const handleCobrar = async () => {
-    try {
-      setError(null);
-      setSuccess(null);
+  const handleAbrirConfirmacion = () => {
+    setError(null);
+    setSuccess(null);
 
-      if (!carrito.length) {
-        setError("No hay productos en el carrito.");
-        refocusScanner();
-        return;
+    if (!carrito.length) {
+      setError("No hay productos en el carrito.");
+      return;
+    }
+
+    if (!pagos.length) {
+      setError("Debes agregar al menos un medio de pago.");
+      return;
+    }
+
+   // Falta plata → no se puede avanzar
+if (saldo > 0) {
+  setError(
+    "Los pagos no cubren el total de la venta. Revisa el saldo antes de cobrar."
+  );
+  return;
+}
+
+// Hay vuelto pero NO hay efectivo/giro → algo raro
+if (saldo < 0 && !tieneEfectivoOGiro) {
+  setError(
+    "Hay vuelto, pero no hay pagos en EFECTIVO o GIRO. Revisa los medios de pago."
+  );
+  return;
+}
+
+
+    setConfirmOpen(true);
+  };
+
+  const handleGenerarVoucherPreview = () => {
+    // Aquí podrías abrir un modal de voucher real, o una nueva ventana, etc.
+    console.log("Generar voucher preliminar (simulado)", {
+      carrito,
+      pagos,
+      total,
+      totalAfecto,
+      totalExento,
+      vuelto,
+    });
+  };
+
+  const handleConfirmarVenta = async () => {
+  try {
+    setError(null);
+    setSuccess(null);
+    setEnviando(true);
+
+    const payloadItems = carrito.map((item) => ({
+      id_producto: item.id_producto,
+      cantidad: item.cantidad,
+      es_promo: item.esPromo ? 1 : 0,
+      promo_id: item.promoId ?? null,
+    }));
+
+    // 🔹 Clonamos los pagos para poder ajustarlos sin perder la info original
+    const pagosAjustados: Pago[] = pagos.map((p) => ({ ...p }));
+
+    // Exceso = cuánto se pasó el cliente (vuelto)
+    let excesoPagos = totalPagos - total; // si es <= 0, no hay vuelto
+
+    if (excesoPagos > 0) {
+      // Restamos el exceso SOLO de pagos EFECTIVO / GIRO
+      for (const p of pagosAjustados) {
+        if (excesoPagos <= 0) break;
+        if (p.tipo === "EFECTIVO" || p.tipo === "GIRO") {
+          const reducible = Math.min(excesoPagos, p.monto);
+          p.monto -= reducible;
+          excesoPagos -= reducible;
+        }
       }
 
-      if (!pagos.length) {
-        setError("Debes agregar al menos un medio de pago.");
-        refocusScanner();
-        return;
+      // Si por alguna razón sobró, lo registramos en consola para revisar
+      if (excesoPagos > 0) {
+        console.warn(
+          "Quedó exceso de pagos después de ajustar el vuelto. Revisar lógica.",
+          excesoPagos
+        );
       }
+    }
 
-      // La validación fina (pagos = total, exentos, etc)
-      // la hace el back con validarPagos / validarProductos
-      setEnviando(true);
-
-      const payloadItems = carrito.map((item) => ({
-        id_producto: item.id_producto,
-        cantidad: item.cantidad,
-        es_promo: item.esPromo ? 1 : 0,
-        promo_id: item.promoId ?? null,
-      }));
-
-      const payloadPagos = pagos.map((p) => ({
+    // No enviamos pagos de monto 0 al backend
+    const payloadPagos = pagosAjustados
+      .filter((p) => p.monto > 0)
+      .map((p) => ({
         tipo: p.tipo,
         monto: p.monto,
       }));
 
-      const res = await api.post("/ventas/crear", {
-        items: payloadItems,
-        pagos: payloadPagos,
-        tipo_venta: "NORMAL",
-      });
+    const res = await api.post("/ventas/crear", {
+      items: payloadItems,
+      pagos: payloadPagos,
+      tipo_venta: "NORMAL",
+    });
 
-      console.log("Respuesta venta:", res.data);
+    setSuccess(`Venta registrada. ID: ${res.data.id_venta}`);
+    setCarrito([]);
+    setPagos([]);
+    setNuevoMontoPago("");
+    setConfirmOpen(false);
+    refocusScanner();
+  } catch (err: any) {
+    console.error(err);
+    setError(
+      err?.response?.data?.error || "Error al registrar la venta POS."
+    );
+    setConfirmOpen(false);
+    refocusScanner();
+  } finally {
+    setEnviando(false);
+  }
+};
 
-      setSuccess(`Venta registrada. ID: ${res.data.id_venta}`);
-      setCarrito([]);
-      setPagos([]);
-      setNuevoMontoPago("");
-      refocusScanner();
-    } catch (err: any) {
-      console.error(err);
-      setError(
-        err?.response?.data?.error ||
-          "Error al registrar la venta POS."
-      );
-      refocusScanner();
-    } finally {
-      setEnviando(false);
-    }
-  };
 
   // ====================
   // Render
@@ -359,7 +485,7 @@ const totalAfecto = total - totalExento;
         flexDirection={{ xs: "column", md: "row" }}
         gap={2}
       >
-        {/* IZQUIERDA: Carrito grande */}
+        {/* IZQUIERDA: Carrito */}
         <Box flex={{ xs: 1, md: 3 }}>
           <Paper
             sx={{
@@ -397,7 +523,7 @@ const totalAfecto = total - totalExento;
 
             <Divider />
 
-            {/* Tabla carrito */}
+            {/* Carrito tabla */}
             <Box sx={{ flex: 1, overflow: "auto" }}>
               <Table size="small" stickyHeader>
                 <TableHead>
@@ -425,7 +551,6 @@ const totalAfecto = total - totalExento;
                                   ml: 1,
                                   height: 18,
                                   fontSize: "0.7rem",
-                                  fontWeight: "bold",
                                 }}
                               />
                             )}
@@ -516,7 +641,7 @@ const totalAfecto = total - totalExento;
           </Paper>
         </Box>
 
-        {/* DERECHA: resumen + pagos + promo */}
+        {/* DERECHA: resumen + pagos + promos */}
         <Box flex={{ xs: 1, md: 2 }}>
           <Paper
             sx={{
@@ -538,6 +663,7 @@ const totalAfecto = total - totalExento;
               </Alert>
             )}
 
+            {/* Resumen */}
             <Box>
               <Typography variant="subtitle1" fontWeight={600}>
                 Resumen
@@ -545,21 +671,18 @@ const totalAfecto = total - totalExento;
               <Typography variant="body2" color="text.secondary">
                 Ítems: {totalItems}
               </Typography>
-
               <Typography variant="body2" color="text.secondary">
                 Afecto: <strong>{formatCLP(totalAfecto)}</strong> · Exento:{" "}
                 <strong>{formatCLP(totalExento)}</strong>
               </Typography>
-
               <Typography variant="h5" fontWeight={700} sx={{ mt: 1 }}>
                 {formatCLP(total)}
               </Typography>
             </Box>
 
-
             <Divider />
 
-            {/* Pagos múltiples */}
+            {/* Pagos */}
             <Box>
               <Typography
                 variant="subtitle2"
@@ -568,6 +691,7 @@ const totalAfecto = total - totalExento;
               >
                 Pagos
               </Typography>
+
               <Stack direction="row" spacing={1} mb={1}>
                 <TextField
                   select
@@ -579,12 +703,14 @@ const totalAfecto = total - totalExento;
                   }
                 >
                   <MenuItem value="EFECTIVO">Efectivo</MenuItem>
+                  <MenuItem value="GIRO">Giro</MenuItem>
                   <MenuItem value="DEBITO">Débito</MenuItem>
                   <MenuItem value="CREDITO">Crédito</MenuItem>
                   <MenuItem value="TRANSFERENCIA">
                     Transferencia
                   </MenuItem>
                 </TextField>
+
                 <TextField
                   size="small"
                   type="number"
@@ -592,7 +718,14 @@ const totalAfecto = total - totalExento;
                   value={nuevoMontoPago}
                   onChange={(e) => setNuevoMontoPago(e.target.value)}
                   fullWidth
+                  error={!!errorPagoActual && !!nuevoMontoPago}
+                  helperText={
+                    !!nuevoMontoPago && errorPagoActual
+                      ? errorPagoActual
+                      : ""
+                  }
                 />
+
                 <Stack spacing={0.5}>
                   <Button
                     variant="outlined"
@@ -605,14 +738,30 @@ const totalAfecto = total - totalExento;
                     variant="contained"
                     size="small"
                     onClick={handleAgregarPago}
-                    disabled={!nuevoMontoPago}
+                    disabled={!montoIngresadoValido}
                   >
                     +
                   </Button>
                 </Stack>
               </Stack>
 
-              <Box sx={{ maxHeight: 150, overflow: "auto" }}>
+              {/* Advertencia contextual exentos + tarjeta */}
+              {totalExento > 0 &&
+                nuevoTipoPago !== "EFECTIVO" &&
+                nuevoTipoPago !== "GIRO" && (
+                  <Typography
+                    variant="caption"
+                    color="error"
+                    display="block"
+                    sx={{ mt: 0.5 }}
+                  >
+                    Hay productos exentos por {formatCLP(totalExento)}. Ese monto
+                    solo puede pagarse con <strong>EFECTIVO o GIRO</strong>. Este
+                    medio se aplicará solo al monto afecto.
+                  </Typography>
+                )}
+
+              <Box sx={{ maxHeight: 150, overflow: "auto", mt: 1 }}>
                 <Table size="small">
                   <TableHead>
                     <TableRow>
@@ -679,12 +828,72 @@ const totalAfecto = total - totalExento;
                 >
                   Saldo: <strong>{formatCLP(saldo)}</strong>
                 </Typography>
+
+                {saldo > 0 && (
+                  <Typography variant="caption" color="warning.main">
+                    Falta por cobrar {formatCLP(saldo)} para completar el
+                    total.
+                  </Typography>
+                )}
+                {saldo === 0 && !!pagos.length && (
+                  <Typography variant="caption" color="success.main">
+                    Pagos correctos, puedes continuar a la confirmación.
+                  </Typography>
+                )}
+                {saldo < 0 && (
+                  <Typography variant="caption" color="warning.main">
+                    Hay un vuelto pendiente de {formatCLP(vuelto)}.
+                  </Typography>
+                )}
               </Box>
+
+              {/* Mensaje fijo sobre exentos */}
+              {totalExento > 0 && (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  display="block"
+                  sx={{ mt: 1 }}
+                >
+                  Recuerda: los productos <strong>exentos</strong> solo pueden
+                  pagarse con <strong>EFECTIVO o GIRO</strong>. Los pagos con
+                  tarjeta o transferencia se aplican únicamente al monto
+                  afecto.
+                </Typography>
+              )}
             </Box>
 
-            <Divider />
+            {/* Bloque verde de vuelto (solo si hay efectivo/giro) */}
+            {vuelto > 0 && tieneEfectivoOGiro && (
+              <Box
+                mt={2}
+                p={2}
+                borderRadius={2}
+                sx={{
+                  bgcolor: "success.main",
+                  color: "white",
+                  textAlign: "center",
+                }}
+              >
+                <Typography variant="subtitle1" fontWeight={700}>
+                  VUELTO AL CLIENTE
+                </Typography>
+                <Typography
+                  variant="h4"
+                  fontWeight={800}
+                  sx={{ mt: 0.5, letterSpacing: 1 }}
+                >
+                  {formatCLP(vuelto)}
+                </Typography>
+                <Typography variant="body2" sx={{ mt: 0.5 }}>
+                  Entregar en efectivo / giro.
+                </Typography>
+              </Box>
+            )}
 
-            {/* Promo combo licores */}
+            <Divider sx={{ mt: 2 }} />
+
+            {/* Promos */}
             <Box>
               <Typography
                 variant="subtitle2"
@@ -720,8 +929,8 @@ const totalAfecto = total - totalExento;
               fullWidth
               size="large"
               startIcon={<PointOfSaleIcon />}
-              disabled={enviando || !carrito.length}
-              onClick={handleCobrar}
+              disabled={enviando || !puedeCobrar}
+              onClick={handleAbrirConfirmacion}
               sx={{ borderRadius: 2, py: 1.2 }}
             >
               {enviando ? "Procesando..." : "Cobrar"}
@@ -730,13 +939,133 @@ const totalAfecto = total - totalExento;
         </Box>
       </Box>
 
-      {/* Modal scanner de promo */}
+      {/* Modal scanner promos */}
       <PromoScannerModalPOS
         open={promoOpen}
         onClose={() => setPromoOpen(false)}
         onPromoAdd={handlePromoAddToCart}
         buscarProductoPorCodigo={buscarProductoPorCodigo}
       />
+
+      {/* Modal de confirmación de venta */}
+      <Dialog
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Confirmar venta POS</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="subtitle1" gutterBottom>
+            Resumen de la venta
+          </Typography>
+
+          <Box mb={2}>
+            <Typography variant="body2" color="text.secondary">
+              Ítems: {totalItems}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Afecto: <strong>{formatCLP(totalAfecto)}</strong> · Exento:{" "}
+              <strong>{formatCLP(totalExento)}</strong>
+            </Typography>
+            <Typography variant="h6" fontWeight={700} sx={{ mt: 1 }}>
+              Total: {formatCLP(total)}
+            </Typography>
+          </Box>
+
+          <Divider sx={{ my: 1 }} />
+
+          <Typography variant="subtitle2" gutterBottom>
+            Productos
+          </Typography>
+          <Box sx={{ maxHeight: 200, overflow: "auto", mb: 2 }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Producto</TableCell>
+                  <TableCell align="right">Cant.</TableCell>
+                  <TableCell align="right">Precio</TableCell>
+                  <TableCell align="right">Subtotal</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {carrito.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell>
+                      <Typography variant="body2">
+                        {item.nombre}
+                        {item.esPromo && (
+                          <Chip
+                            label="Combo"
+                            size="small"
+                            sx={{ ml: 1, fontSize: "0.7rem" }}
+                          />
+                        )}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">{item.cantidad}</TableCell>
+                    <TableCell align="right">
+                      {formatCLP(item.precio)}
+                    </TableCell>
+                    <TableCell align="right">
+                      {formatCLP(subtotalItem(item))}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+
+          <Typography variant="subtitle2" gutterBottom>
+            Medios de pago
+          </Typography>
+          <Box sx={{ maxHeight: 150, overflow: "auto", mb: 2 }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Medio</TableCell>
+                  <TableCell align="right">Monto</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {pagos.map((p) => (
+                  <TableRow key={p.id}>
+                    <TableCell>{p.tipo}</TableCell>
+                    <TableCell align="right">
+                      {formatCLP(p.monto)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+
+          <Box>
+            <Typography variant="body2">
+              Total pagos: <strong>{formatCLP(totalPagos)}</strong>
+            </Typography>
+            {vuelto > 0 && tieneEfectivoOGiro && (
+              <Typography variant="body2" color="success.main">
+                Vuelto al cliente: <strong>{formatCLP(vuelto)}</strong>
+              </Typography>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmOpen(false)}>Seguir editando</Button>
+          <Button onClick={handleGenerarVoucherPreview}>
+            Generar voucher
+          </Button>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={handleConfirmarVenta}
+            disabled={enviando}
+          >
+            Confirmar venta
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
