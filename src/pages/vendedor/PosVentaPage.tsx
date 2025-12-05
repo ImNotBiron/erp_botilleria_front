@@ -21,6 +21,8 @@ import {
   DialogContent,
   DialogActions,
 } from "@mui/material";
+import { useTheme, alpha } from "@mui/material/styles";
+
 
 import SearchIcon from "@mui/icons-material/Search";
 import PointOfSaleIcon from "@mui/icons-material/PointOfSale";
@@ -72,6 +74,11 @@ const formatCLP = (value: number) =>
   }).format(value);
 
 export default function PosVentaPage() {
+
+  const theme = useTheme();
+  const isDark = theme.palette.mode === "dark";
+
+
   // Escáner
   const [codigo, setCodigo] = useState("");
   const codigoInputRef = useRef<HTMLInputElement | null>(null);
@@ -94,6 +101,12 @@ export default function PosVentaPage() {
   const [promoOpen, setPromoOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
+  const POS_STORAGE_KEY = "pos_venta_borrador_v1";
+
+  // Flag para no sobreescribir el storage antes de cargar
+  const [draftLoaded, setDraftLoaded] = useState(false);
+
+  
   // ====================
   // Totales
   // ====================
@@ -125,6 +138,56 @@ export default function PosVentaPage() {
   saldo <= 0 &&
   // si hay vuelto (saldo < 0), DEBE existir efectivo o giro
   (saldo >= 0 || tieneEfectivoOGiro);
+
+  // Cargar borrador de venta al montar
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(POS_STORAGE_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+
+        if (data.carrito && Array.isArray(data.carrito)) {
+          setCarrito(data.carrito);
+        }
+        if (data.pagos && Array.isArray(data.pagos)) {
+          setPagos(data.pagos);
+        }
+        if (data.nuevoTipoPago) {
+          setNuevoTipoPago(data.nuevoTipoPago);
+        }
+        if (typeof data.nuevoMontoPago === "string") {
+          setNuevoMontoPago(data.nuevoMontoPago);
+        }
+      }
+    } catch (e) {
+      console.warn("No se pudo cargar borrador POS", e);
+    } finally {
+      // Muy importante: marcamos que ya intentamos cargar
+      setDraftLoaded(true);
+    }
+  }, []);
+
+
+  // Guardar borrador en localStorage cuando cambian datos clave
+  useEffect(() => {
+    // Si aún no cargamos el borrador inicial, NO guardamos
+    if (!draftLoaded) return;
+
+    const borrador = {
+      carrito,
+      pagos,
+      nuevoTipoPago,
+      nuevoMontoPago,
+    };
+
+    try {
+      localStorage.setItem(POS_STORAGE_KEY, JSON.stringify(borrador));
+    } catch (e) {
+      console.warn("No se pudo guardar borrador POS", e);
+    }
+  }, [carrito, pagos, nuevoTipoPago, nuevoMontoPago, draftLoaded]);
+
+
 
   // ====================
   // Focus pistola
@@ -455,6 +518,7 @@ if (saldo < 0 && !tieneEfectivoOGiro) {
     setCarrito([]);
     setPagos([]);
     setNuevoMontoPago("");
+    localStorage.removeItem(POS_STORAGE_KEY);
     setConfirmOpen(false);
     refocusScanner();
   } catch (err: any) {
@@ -475,27 +539,24 @@ if (saldo < 0 && !tieneEfectivoOGiro) {
   // ====================
 
   return (
-    <Box>
-      <Typography variant="h5" fontWeight={700} mb={2}>
-        Punto de Venta
-      </Typography>
-
+    <Box sx={{height: "calc(100vh - 50px)",}}>
       <Box
         display="flex"
         flexDirection={{ xs: "column", md: "row" }}
         gap={2}
+        sx={{height: "100%"}}
       >
         {/* IZQUIERDA: Carrito */}
         <Box flex={{ xs: 1, md: 3 }}>
-          <Paper
-            sx={{
-              p: 2,
-              minHeight: "75vh",
-              display: "flex",
-              flexDirection: "column",
-              gap: 2,
-            }}
-          >
+         <Paper
+              sx={{
+                p: 2,
+                height: "100%",            
+                display: "flex",
+                flexDirection: "column",
+                gap: 2,
+              }}
+            >
             {/* Escáner */}
             <Box component="form" onSubmit={handleAgregarProductoPorCodigo}>
               <Typography variant="subtitle2" color="text.secondary" mb={0.5}>
@@ -642,14 +703,15 @@ if (saldo < 0 && !tieneEfectivoOGiro) {
         </Box>
 
         {/* DERECHA: resumen + pagos + promos */}
-        <Box flex={{ xs: 1, md: 2 }}>
+        <Box flex={{ xs: 1, md: 2, }}>
           <Paper
             sx={{
               p: 2,
-              minHeight: "75vh",
+              height: "100%",
               display: "flex",
               flexDirection: "column",
               gap: 2,
+              overflow: "auto"
             }}
           >
             {error && (
@@ -664,7 +726,7 @@ if (saldo < 0 && !tieneEfectivoOGiro) {
             )}
 
             {/* Resumen */}
-            <Box>
+            <Box >
               <Typography variant="subtitle1" fontWeight={600}>
                 Resumen
               </Typography>
@@ -937,6 +999,7 @@ if (saldo < 0 && !tieneEfectivoOGiro) {
             </Button>
           </Paper>
         </Box>
+        
       </Box>
 
       {/* Modal scanner promos */}
@@ -948,124 +1011,296 @@ if (saldo < 0 && !tieneEfectivoOGiro) {
       />
 
       {/* Modal de confirmación de venta */}
-      <Dialog
-        open={confirmOpen}
-        onClose={() => setConfirmOpen(false)}
-        maxWidth="md"
-        fullWidth
+  <Dialog
+  open={confirmOpen}
+  onClose={() => setConfirmOpen(false)}
+  maxWidth="md"
+  fullWidth
+  PaperProps={{
+    sx: {
+      borderRadius: 3,
+      overflow: "hidden",
+      bgcolor: "background.paper",
+    },
+  }}
+>
+  {/* HEADER */}
+  <DialogTitle
+    sx={{
+      px: 3,
+      py: 2,
+      bgcolor: "primary.main",
+      color: "primary.contrastText",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+    }}
+  >
+    <Box>
+      <Typography variant="caption" sx={{ opacity: 0.9 }}>
+        Confirmación de venta POS
+      </Typography>
+      <Typography variant="h6" fontWeight={700}>
+        Revisa el resumen antes de guardar
+      </Typography>
+    </Box>
+    <Box textAlign="right">
+      <Typography variant="caption" sx={{ opacity: 0.8 }}>
+        Total a cobrar
+      </Typography>
+      <Typography variant="h6" fontWeight={800}>
+        {formatCLP(total)}
+      </Typography>
+    </Box>
+  </DialogTitle>
+
+  {/* CONTENIDO */}
+  <DialogContent
+    dividers
+    sx={{
+      p: 3,
+      bgcolor: "background.default",
+    }}
+  >
+    {/* RESUMEN ARRIBA */}
+    <Box
+      sx={{
+        mb: 2,
+        p: 2,
+        borderRadius: 1,
+        display: "flex",
+        flexDirection: { xs: "column", sm: "row" },
+        gap: 2,
+        bgcolor: (t) =>
+          isDark
+            ? alpha(t.palette.background.paper, 0.9)
+            : t.palette.background.paper,
+        boxShadow: isDark
+          ? "0 0 0 1px rgba(148,163,184,0.25)"
+          : "0 0 0 1px rgba(15,23,42,0.06)",
+      }}
+    >
+      <Box flex={1}>
+        <Typography variant="caption" color="text.secondary">
+          Ítems
+        </Typography>
+        <Typography variant="h6" fontWeight={700}>
+          {totalItems}
+        </Typography>
+      </Box>
+
+      <Box flex={1}>
+        <Typography variant="caption" color="text.secondary">
+          Afecto
+        </Typography>
+        <Typography variant="body1" fontWeight={600}>
+          {formatCLP(totalAfecto)}
+        </Typography>
+        <Typography variant="caption" color="text.secondary">
+          Exento:{" "}
+          <Box component="span" fontWeight={600}>
+            {formatCLP(totalExento)}
+          </Box>
+        </Typography>
+      </Box>
+
+      <Box
+        flex={1}
+        sx={{ textAlign: { xs: "left", sm: "right" } }}
       >
-        <DialogTitle>Confirmar venta POS</DialogTitle>
-        <DialogContent dividers>
-          <Typography variant="subtitle1" gutterBottom>
-            Resumen de la venta
+        <Typography variant="caption" color="text.secondary">
+          Total pagos
+        </Typography>
+        <Typography variant="body1" fontWeight={600}>
+          {formatCLP(totalPagos)}
+        </Typography>
+        {vuelto > 0 && tieneEfectivoOGiro && (
+          <Typography variant="caption" color="success.main">
+            Vuelto:{" "}
+            <Box component="span" fontWeight={700}>
+              {formatCLP(vuelto)}
+            </Box>
           </Typography>
+        )}
+      </Box>
+    </Box>
 
-          <Box mb={2}>
-            <Typography variant="body2" color="text.secondary">
-              Ítems: {totalItems}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Afecto: <strong>{formatCLP(totalAfecto)}</strong> · Exento:{" "}
-              <strong>{formatCLP(totalExento)}</strong>
-            </Typography>
-            <Typography variant="h6" fontWeight={700} sx={{ mt: 1 }}>
-              Total: {formatCLP(total)}
-            </Typography>
-          </Box>
-
-          <Divider sx={{ my: 1 }} />
-
-          <Typography variant="subtitle2" gutterBottom>
-            Productos
+    {/* DOS COLUMNAS: PRODUCTOS / PAGOS */}
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: { xs: "column", md: "row" },
+        gap: 2,
+      }}
+    >
+      {/* PRODUCTOS */}
+      <Box flex={3}>
+        <Typography
+          variant="subtitle2"
+          gutterBottom
+          sx={{ display: "flex", justifyContent: "space-between" }}
+        >
+          Productos
+          <Typography variant="caption" color="text.secondary">
+            {carrito.length} líneas
           </Typography>
-          <Box sx={{ maxHeight: 200, overflow: "auto", mb: 2 }}>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Producto</TableCell>
-                  <TableCell align="right">Cant.</TableCell>
-                  <TableCell align="right">Precio</TableCell>
-                  <TableCell align="right">Subtotal</TableCell>
+        </Typography>
+        <Paper
+          variant="outlined"
+          sx={{
+            maxHeight: 220,
+            overflow: "auto",
+            borderRadius: 0.5,
+            bgcolor: "background.paper",
+          }}
+        >
+          <Table size="small" stickyHeader>
+            <TableHead>
+              <TableRow>
+                <TableCell>Producto</TableCell>
+                <TableCell align="right">Cant.</TableCell>
+                <TableCell align="right">Precio</TableCell>
+                <TableCell align="right">Subtotal</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {carrito.map((item) => (
+                <TableRow key={item.id}>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight={500}>
+                      {item.nombre}
+                      {item.esPromo && (
+                        <Chip
+                          label="Combo"
+                          size="small"
+                          color="secondary"
+                          sx={{
+                            ml: 1,
+                            fontSize: "0.7rem",
+                            height: 18,
+                          }}
+                        />
+                      )}
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                    >
+                      {item.codigo}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="right">{item.cantidad}</TableCell>
+                  <TableCell align="right">
+                    {formatCLP(item.precio)}
+                  </TableCell>
+                  <TableCell align="right">
+                    {formatCLP(subtotalItem(item))}
+                  </TableCell>
                 </TableRow>
-              </TableHead>
-              <TableBody>
-                {carrito.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell>
-                      <Typography variant="body2">
-                        {item.nombre}
-                        {item.esPromo && (
-                          <Chip
-                            label="Combo"
-                            size="small"
-                            sx={{ ml: 1, fontSize: "0.7rem" }}
-                          />
-                        )}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">{item.cantidad}</TableCell>
-                    <TableCell align="right">
-                      {formatCLP(item.precio)}
-                    </TableCell>
-                    <TableCell align="right">
-                      {formatCLP(subtotalItem(item))}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Box>
+              ))}
+            </TableBody>
+          </Table>
+        </Paper>
+      </Box>
 
-          <Typography variant="subtitle2" gutterBottom>
-            Medios de pago
-          </Typography>
-          <Box sx={{ maxHeight: 150, overflow: "auto", mb: 2 }}>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Medio</TableCell>
-                  <TableCell align="right">Monto</TableCell>
+      {/* PAGOS */}
+      <Box flex={2}>
+        <Typography variant="subtitle2" gutterBottom>
+          Medios de pago
+        </Typography>
+        <Paper
+          variant="outlined"
+          sx={{
+            maxHeight: 220,
+            overflow: "auto",
+            borderRadius: 0.5,
+            bgcolor: "background.paper",
+            mb: 1,
+          }}
+        >
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Medio</TableCell>
+                <TableCell align="right">Monto</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {pagos.map((p) => (
+                <TableRow key={p.id}>
+                  <TableCell>
+                    <Chip
+                      label={p.tipo}
+                      size="small"
+                      sx={{ fontSize: "0.7rem" }}
+                    />
+                  </TableCell>
+                  <TableCell align="right">
+                    {formatCLP(p.monto)}
+                  </TableCell>
                 </TableRow>
-              </TableHead>
-              <TableBody>
-                {pagos.map((p) => (
-                  <TableRow key={p.id}>
-                    <TableCell>{p.tipo}</TableCell>
-                    <TableCell align="right">
-                      {formatCLP(p.monto)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Box>
+              ))}
+            </TableBody>
+          </Table>
+        </Paper>
 
-          <Box>
-            <Typography variant="body2">
-              Total pagos: <strong>{formatCLP(totalPagos)}</strong>
-            </Typography>
-            {vuelto > 0 && tieneEfectivoOGiro && (
-              <Typography variant="body2" color="success.main">
-                Vuelto al cliente: <strong>{formatCLP(vuelto)}</strong>
+        <Box>
+          <Typography variant="body2">
+            Total pagos:{" "}
+            <Box component="span" fontWeight={700}>
+              {formatCLP(totalPagos)}
+            </Box>
+          </Typography>
+
+          {vuelto > 0 && tieneEfectivoOGiro && (
+            <Box
+              sx={{
+                mt: 1,
+                p: 1.2,
+                borderRadius: 3,
+                bgcolor: "success.main",
+                color: "success.contrastText",
+                textAlign: "center",
+              }}
+            >
+              <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                Vuelto al cliente
               </Typography>
-            )}
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmOpen(false)}>Seguir editando</Button>
-          <Button onClick={handleGenerarVoucherPreview}>
-            Generar voucher
-          </Button>
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={handleConfirmarVenta}
-            disabled={enviando}
-          >
-            Confirmar venta
-          </Button>
-        </DialogActions>
-      </Dialog>
+              <Typography variant="h6" fontWeight={800}>
+                {formatCLP(vuelto)}
+              </Typography>
+            </Box>
+          )}
+        </Box>
+      </Box>
+    </Box>
+
+    <Box mt={2}>
+      <Typography variant="caption" color="text.secondary">
+        Revisa que productos, totales y medios de pago coincidan con lo
+        entregado por el cliente antes de confirmar la venta.
+      </Typography>
+    </Box>
+  </DialogContent>
+
+  {/* ACCIONES */}
+  <DialogActions sx={{ p: 2.5 }}>
+    <Button onClick={() => setConfirmOpen(false)}>Seguir editando</Button>
+    <Button variant="outlined" onClick={handleGenerarVoucherPreview}>
+      Generar voucher
+    </Button>
+    <Button
+      variant="contained"
+      color="primary"
+      onClick={handleConfirmarVenta}
+      disabled={enviando}
+    >
+      Confirmar venta
+    </Button>
+  </DialogActions>
+</Dialog>
+
+
     </Box>
   );
 }

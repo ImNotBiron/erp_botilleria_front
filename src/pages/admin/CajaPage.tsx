@@ -345,8 +345,7 @@ const esperadoLocalCalc =
   n(cajaActiva.inicial_local) +
   n(cajaActiva.total_efectivo_giro) +
   n(cajaActiva.ingresos_extra) -
-  n(cajaActiva.egresos) -
-  n(cajaActiva.total_exento);
+  n(cajaActiva.egresos);
 
 // 🔹 SIEMPRE calcular esperado vecina en front
 const esperadoVecinaCalc =
@@ -362,16 +361,13 @@ const esperadoVecinaCalc =
 
   return (
     <Box>
-      <Typography variant="h4" fontWeight={700} mb={2}>
-        Caja del Local
-      </Typography>
 
       {/* Layout principal: cards en una columna ordenada */}
       <Stack spacing={3}>
         {/* === CARD 1: RESUMEN GENERAL + ACCIONES === */}
         <Card
   sx={{
-    borderRadius: 3,
+    borderRadius: 1,
     boxShadow: "0 4px 18px rgba(0,0,0,0.05)",
   }}
 >
@@ -458,7 +454,7 @@ const esperadoVecinaCalc =
       sx={{
         mt: 2,
         p: 1.5,
-        borderRadius: 2,
+        borderRadius: 1,
         border: "1px dashed",
         borderColor: "divider",
         bgcolor: "background.default",
@@ -494,7 +490,7 @@ const esperadoVecinaCalc =
         {/* === CARD 2: CAJA LOCAL + CAJA VECINA === */}
         <Card
           sx={{
-            borderRadius: 3,
+            borderRadius: 1,
             boxShadow: "0 4px 18px rgba(0,0,0,0.05)",
           }}
         >
@@ -601,7 +597,7 @@ const esperadoVecinaCalc =
         {/* === CARD 3: MÉTODOS DE PAGO === */}
         <Card
           sx={{
-            borderRadius: 3,
+            borderRadius: 1,
             boxShadow: "0 4px 18px rgba(0,0,0,0.04)",
           }}
         >
@@ -734,7 +730,7 @@ const esperadoVecinaCalc =
         {/* === CARD 4: MOVIMIENTOS === */}
         <Card
           sx={{
-            borderRadius: 3,
+            borderRadius: 1,
             boxShadow: "0 4px 18px rgba(0,0,0,0.05)",
           }}
         >

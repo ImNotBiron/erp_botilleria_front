@@ -48,10 +48,36 @@ export default function AppThemeProvider({ children }: { children: React.ReactNo
     },
     components: {
       MuiCssBaseline: {
-        styleOverrides: {
-          body: { transition: "background-color 0.25s ease, color 0.25s ease" },
-        },
-      },
+  styleOverrides: {
+    body: {
+      transition: "background-color 0.25s ease, color 0.25s ease",
+    },
+
+    /* Firefox */
+    "*": {
+      scrollbarWidth: "thin",
+      scrollbarColor: "rgba(148,163,184,0.7) transparent",
+    },
+
+    /* Chrome, Edge, Safari */
+    "*::-webkit-scrollbar": {
+      width: 6,   // antes 8
+      height: 6,  // antes 8
+    },
+    "*::-webkit-scrollbar-track": {
+      backgroundColor: "transparent",
+    },
+    "*::-webkit-scrollbar-thumb": {
+      backgroundColor: "rgba(148,163,184,0.7)",
+      borderRadius: 999,
+      border: "3px solid transparent", // más borde para que se vea aún más delgada
+      backgroundClip: "content-box",
+    },
+    "*::-webkit-scrollbar-thumb:hover": {
+      backgroundColor: "rgba(148,163,184,0.9)",
+    },
+  },
+},
 
       MuiDrawer: {
         styleOverrides: {

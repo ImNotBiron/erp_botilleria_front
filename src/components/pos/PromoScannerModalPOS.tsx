@@ -24,7 +24,7 @@ export interface ProductoBase {
   id: number;
   codigo_producto: string;
   nombre_producto: string;
-  precio_producto: number;
+  precio_venta: number;
   exento_iva: 0 | 1;
   capacidad?: number;
   id_categoria?: number;
@@ -44,9 +44,8 @@ interface PromoScannerModalPOSProps {
   buscarProductoPorCodigo: (codigo: string) => Promise<ProductoBase>;
 }
 
-// Config local – adapta a tu realidad si quieres
-const FORMATOS_BEBIDA = [1500, 1750, 2000, 2250, 2500, 3000];
-const CAT_LICORES = [3, 4, 5];
+// Config local
+const CAT_LICORES = [5, 8, 9, 11,12];
 const CAT_BEBIDAS = [2];
 
 export const PromoScannerModalPOS: React.FC<PromoScannerModalPOSProps> = ({
@@ -109,12 +108,6 @@ export const PromoScannerModalPOS: React.FC<PromoScannerModalPOSProps> = ({
         if (!producto.id_categoria || !CAT_BEBIDAS.includes(producto.id_categoria)) {
           throw new Error(`"${producto.nombre_producto}" no es una bebida válida.`);
         }
-        if (!producto.capacidad || !FORMATOS_BEBIDA.includes(producto.capacidad)) {
-          throw new Error(
-            `Formato inválido (${producto.capacidad} cc). Solo se aceptan entre 1.5L y 3L.`
-          );
-        }
-
         if (!licor) throw new Error("Primero debe seleccionarse un licor.");
 
         armarCombo(licor, producto);
@@ -148,11 +141,10 @@ export const PromoScannerModalPOS: React.FC<PromoScannerModalPOSProps> = ({
         promoId,
       },
       {
-        // ❗ Ajusta este producto de hielo según tu BD real
         id: 11,
         codigo_producto: "HIELO01",
         nombre_producto: "Hielo 1KG (Regalo)",
-        precio_producto: 0,
+        precio_venta: 0,
         exento_iva: 0,
         cantidad: 1,
         es_promo: true,
