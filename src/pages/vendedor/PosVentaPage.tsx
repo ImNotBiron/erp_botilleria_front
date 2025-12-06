@@ -296,50 +296,65 @@ export default function PosVentaPage() {
   // ====================
 
   const obtenerErrorPagoActual = (): string | null => {
-    const monto = Number(nuevoMontoPago);
-    if (!monto || monto <= 0) return null; // no molestamos si no hay monto
+  const monto = Number(nuevoMontoPago);
+  if (!monto || monto <= 0) return null; // no molestamos si no hay monto
 
-    const saldoPendiente = total - totalPagos;
-    if (saldoPendiente <= 0) {
-      return "No hay saldo pendiente por cobrar.";
-    }
+  const saldoPendiente = total - totalPagos;
+  if (saldoPendiente <= 0) {
+    return "No hay saldo pendiente por cobrar.";
+  }
 
-    if (nuevoTipoPago === "EFECTIVO" || nuevoTipoPago === "GIRO") {
-      // efectivo/giro siempre OK, aunque genere vuelto
-      return null;
-    }
-
-    // Medios NO efectivos (débito/crédito/transferencia)
-
-    // 1) No puede pagar más que el saldo pendiente
-    if (monto > saldoPendiente) {
-      return "Con débito/crédito/transferencia no puedes ingresar un monto mayor al saldo pendiente ni generar vuelto.";
-    }
-
-    // 2) No puede superar el monto afecto
-    const pagosNoEfectivoPrevios = pagos
-      .filter((p) => p.tipo !== "EFECTIVO" && p.tipo !== "GIRO")
-      .reduce((acc, p) => acc + p.monto, 0);
-
-    const maxNoEfectivo = totalAfecto;
-    const nuevoTotalNoEfectivo = pagosNoEfectivoPrevios + monto;
-
-    if (nuevoTotalNoEfectivo > maxNoEfectivo) {
-      const maxDisponible = Math.max(
-        maxNoEfectivo - pagosNoEfectivoPrevios,
-        0
-      );
-
-      if (maxDisponible > 0) {
-        return `No puedes pagar todo con ${nuevoTipoPago} porque hay productos exentos. El máximo que puedes pagar con este medio es ${formatCLP(
-          maxDisponible
-        )}.`;
-      }
-      return "Ya no puedes pagar más con débito/crédito/transferencia: el resto debe ser EFECTIVO o GIRO porque hay productos exentos.";
-    }
-
+  // Efectivo / giro siempre OK (aunque genere vuelto)
+  if (nuevoTipoPago === "EFECTIVO" || nuevoTipoPago === "GIRO") {
     return null;
-  };
+  }
+
+  // ================================
+  // Medios NO efectivos (DEBITO / CREDITO / TRANSFERENCIA)
+  // ================================
+
+  // 0) Regla extra:
+  // Si el monto en EFECTIVO/GIRO ya alcanza o supera TODO el afecto,
+  // consideramos que el saldo pendiente corresponde solo a exentos.
+  const totalEfectivoGiroPrevio = pagos
+    .filter((p) => p.tipo === "EFECTIVO" || p.tipo === "GIRO")
+    .reduce((acc, p) => acc + p.monto, 0);
+
+  if (totalEfectivoGiroPrevio >= totalAfecto) {
+    return "El monto afecto ya está completamente cubierto con EFECTIVO o GIRO. El saldo restante corresponde solo a productos exentos y debe pagarse con EFECTIVO o GIRO.";
+  }
+
+  // 1) No puede pagar más que el saldo pendiente
+  if (monto > saldoPendiente) {
+    return "Con débito/crédito/transferencia no puedes ingresar un monto mayor al saldo pendiente ni generar vuelto.";
+  }
+
+  // 2) No puede superar el monto afecto total (regla SII clásica)
+  const pagosNoEfectivoPrevios = pagos
+    .filter((p) => p.tipo !== "EFECTIVO" && p.tipo !== "GIRO")
+    .reduce((acc, p) => acc + p.monto, 0);
+
+  const maxNoEfectivo = totalAfecto;
+  const nuevoTotalNoEfectivo = pagosNoEfectivoPrevios + monto;
+
+  if (nuevoTotalNoEfectivo > maxNoEfectivo) {
+    const maxDisponible = Math.max(
+      maxNoEfectivo - pagosNoEfectivoPrevios,
+      0
+    );
+
+    if (maxDisponible > 0) {
+      return `No puedes pagar todo con ${nuevoTipoPago} porque hay productos exentos. El máximo que puedes pagar con este medio es ${formatCLP(
+        maxDisponible
+      )}.`;
+    }
+
+    return "Ya no puedes pagar más con débito/crédito/transferencia: el resto debe ser EFECTIVO o GIRO porque hay productos exentos.";
+  }
+
+  return null;
+};
+
 
   const errorPagoActual = obtenerErrorPagoActual();
   const montoIngresadoValido =
