@@ -522,6 +522,8 @@ if (saldo < 0 && !tieneEfectivoOGiro) {
         tipo: p.tipo,
         monto: p.monto,
       }));
+      console.log("PAYLOAD ITEMS >>>", payloadItems);
+
 
     const res = await api.post("/ventas/crear", {
       items: payloadItems,

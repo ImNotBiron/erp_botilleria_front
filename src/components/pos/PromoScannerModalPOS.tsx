@@ -45,8 +45,11 @@ interface PromoScannerModalPOSProps {
 }
 
 // Config local
-const CAT_LICORES = [5, 8, 9, 11,12];
+const CAT_LICORES = [5, 8, 9, 11, 12];
 const CAT_BEBIDAS = [2];
+
+// Código del producto hielo 1kg en la BD
+const CODIGO_HIELO_1KG = "HIE001";
 
 export const PromoScannerModalPOS: React.FC<PromoScannerModalPOSProps> = ({
   open,
@@ -110,7 +113,7 @@ export const PromoScannerModalPOS: React.FC<PromoScannerModalPOSProps> = ({
         }
         if (!licor) throw new Error("Primero debe seleccionarse un licor.");
 
-        armarCombo(licor, producto);
+        await armarCombo(licor, producto);
       }
     } catch (err: any) {
       setError(err?.message || "Error al procesar código");
@@ -124,8 +127,14 @@ export const PromoScannerModalPOS: React.FC<PromoScannerModalPOSProps> = ({
   // ARMAR COMBO
   // =============================
 
-  const armarCombo = (prodLicor: ProductoBase, prodBebida: ProductoBase) => {
+  const armarCombo = async (
+    prodLicor: ProductoBase,
+    prodBebida: ProductoBase
+  ) => {
     const promoId = Date.now();
+
+    // Traemos el hielo desde la BD por codigo_producto, no hardcodeamos id
+    const prodHielo = await buscarProductoPorCodigo(CODIGO_HIELO_1KG);
 
     const items: PromoCartItem[] = [
       {
@@ -141,11 +150,9 @@ export const PromoScannerModalPOS: React.FC<PromoScannerModalPOSProps> = ({
         promoId,
       },
       {
-        id: 11,
-        codigo_producto: "HIELO01",
-        nombre_producto: "Hielo 1KG (Regalo)",
-        precio_venta: 0,
-        exento_iva: 0,
+        ...prodHielo,
+        nombre_producto: `${prodHielo.nombre_producto} (Regalo)`,
+        precio_venta: 0, // se muestra y se cobra a $0 en el front
         cantidad: 1,
         es_promo: true,
         promoId,
