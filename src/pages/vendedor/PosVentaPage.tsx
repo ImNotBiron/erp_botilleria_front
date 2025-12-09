@@ -23,7 +23,6 @@ import {
 } from "@mui/material";
 import { useTheme, alpha } from "@mui/material/styles";
 
-
 import SearchIcon from "@mui/icons-material/Search";
 import PointOfSaleIcon from "@mui/icons-material/PointOfSale";
 import LocalOfferIcon from "@mui/icons-material/LocalOffer";
@@ -33,8 +32,11 @@ import DeleteIcon from "@mui/icons-material/DeleteForever";
 
 import { api } from "../../api/api";
 
+import CalculateIcon from "@mui/icons-material/Calculate";
+import { CalculadoraModalPOS } from "../../components/pos/CalculadoraModalPOS";
 import { PromoScannerModalPOS } from "../../components/pos/PromoScannerModalPos";
 import type { PromoCartItem } from "../../components/pos/PromoScannerModalPos";
+import { PromoArmadaModalPOS , type PromoArmada } from "../../components/pos/PromoArmadaModalPOS";
 
 type MedioPago = "EFECTIVO" | "GIRO" | "DEBITO" | "CREDITO" | "TRANSFERENCIA";
 
@@ -48,6 +50,7 @@ type ItemCarrito = {
   exento: boolean;
   esPromo?: boolean;
   promoId?: number;
+  esMayorista?: boolean; 
 };
 
 type Pago = {
@@ -74,10 +77,8 @@ const formatCLP = (value: number) =>
   }).format(value);
 
 export default function PosVentaPage() {
-
   const theme = useTheme();
   const isDark = theme.palette.mode === "dark";
-
 
   // Escáner
   const [codigo, setCodigo] = useState("");
@@ -86,10 +87,16 @@ export default function PosVentaPage() {
   // Carrito
   const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
 
+  // Teclado numérico para cantidad
+  const [qtyDialogOpen, setQtyDialogOpen] = useState(false);
+  const [qtyEditingItemId, setQtyEditingItemId] = useState<string | null>(null);
+  const [qtyBuffer, setQtyBuffer] = useState<string>("");
+
+  const [calcOpen, setCalcOpen] = useState(false);
+
   // Pagos múltiples
   const [pagos, setPagos] = useState<Pago[]>([]);
-  const [nuevoTipoPago, setNuevoTipoPago] =
-    useState<MedioPago>("EFECTIVO");
+  const [nuevoTipoPago, setNuevoTipoPago] = useState<MedioPago>("EFECTIVO");
   const [nuevoMontoPago, setNuevoMontoPago] = useState<string>("");
 
   // Estados generales
@@ -100,13 +107,16 @@ export default function PosVentaPage() {
   // Promo / confirmación
   const [promoOpen, setPromoOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+ 
+  // Promo Armada
+  const [promoArmadaOpen, setPromoArmadaOpen] = useState(false);
+
 
   const POS_STORAGE_KEY = "pos_venta_borrador_v1";
 
   // Flag para no sobreescribir el storage antes de cargar
   const [draftLoaded, setDraftLoaded] = useState(false);
 
-  
   // ====================
   // Totales
   // ====================
@@ -132,12 +142,12 @@ export default function PosVentaPage() {
   );
 
   const puedeCobrar =
-  carrito.length > 0 &&
-  pagos.length > 0 &&
-  // saldo <= 0  → cubre el total o se pasó (hay vuelto)
-  saldo <= 0 &&
-  // si hay vuelto (saldo < 0), DEBE existir efectivo o giro
-  (saldo >= 0 || tieneEfectivoOGiro);
+    carrito.length > 0 &&
+    pagos.length > 0 &&
+    // saldo <= 0  → cubre el total o se pasó (hay vuelto)
+    saldo <= 0 &&
+    // si hay vuelto (saldo < 0), DEBE existir efectivo o giro
+    (saldo >= 0 || tieneEfectivoOGiro);
 
   // Cargar borrador de venta al montar
   useEffect(() => {
@@ -167,7 +177,6 @@ export default function PosVentaPage() {
     }
   }, []);
 
-
   // Guardar borrador en localStorage cuando cambian datos clave
   useEffect(() => {
     // Si aún no cargamos el borrador inicial, NO guardamos
@@ -187,8 +196,6 @@ export default function PosVentaPage() {
     }
   }, [carrito, pagos, nuevoTipoPago, nuevoMontoPago, draftLoaded]);
 
-
-
   // ====================
   // Focus pistola
   // ====================
@@ -207,7 +214,9 @@ export default function PosVentaPage() {
   // API productos
   // ====================
 
-  const buscarProductoPorCodigo = async (codigo: string): Promise<ProductoApi> => {
+  const buscarProductoPorCodigo = async (
+    codigo: string
+  ): Promise<ProductoApi> => {
     const res = await api.get(`/productos/codigo/${codigo}`);
     return res.data as ProductoApi;
   };
@@ -216,7 +225,7 @@ export default function PosVentaPage() {
   // Carrito
   // ====================
 
-  const handleAgregarProductoPorCodigo = async (
+   const handleAgregarProductoPorCodigo = async (
     e: React.FormEvent<HTMLFormElement>
   ) => {
     e.preventDefault();
@@ -232,9 +241,8 @@ export default function PosVentaPage() {
     try {
       const prod = await buscarProductoPorCodigo(cod);
 
-      setCarrito((prev) => [
-        ...prev,
-        {
+      setCarrito((prev) => {
+        const nuevo: ItemCarrito = {
           id: crypto.randomUUID(),
           id_producto: prod.id,
           codigo: prod.codigo_producto,
@@ -242,8 +250,13 @@ export default function PosVentaPage() {
           precio: prod.precio_venta,
           cantidad: 1,
           exento: prod.exento_iva === 1,
-        },
-      ]);
+        };
+
+        const updated = [...prev, nuevo];
+        // 🔹 sincronizamos con backend
+        sincronizarPreciosBackend(updated);
+        return updated;
+      });
 
       setCodigo("");
     } catch (err: any) {
@@ -257,26 +270,35 @@ export default function PosVentaPage() {
     }
   };
 
-  const handleEliminarItem = (id: string) => {
-    setCarrito((prev) => prev.filter((it) => it.id !== id));
+
+   const handleEliminarItem = (id: string) => {
+    setCarrito((prev) => {
+      const updated = prev.filter((it) => it.id !== id);
+      sincronizarPreciosBackend(updated);
+      return updated;
+    });
     refocusScanner();
   };
 
-  const cambiarCantidad = (id: string, delta: number) => {
-    setCarrito((prev) =>
-      prev.map((item) => {
+
+    const cambiarCantidad = (id: string, delta: number) => {
+    setCarrito((prev) => {
+      const updated = prev.map((item) => {
         if (item.id !== id) return item;
         const nueva = item.cantidad + delta;
         return { ...item, cantidad: nueva <= 0 ? 1 : nueva };
-      })
-    );
+      });
+
+      sincronizarPreciosBackend(updated);
+      return updated;
+    });
     refocusScanner();
   };
 
-  const handlePromoAddToCart = (promoItems: PromoCartItem[]) => {
-    setCarrito((prev) => [
-      ...prev,
-      ...promoItems.map((p) => ({
+
+    const handlePromoAddToCart = (promoItems: PromoCartItem[]) => {
+    setCarrito((prev) => {
+      const mapped = promoItems.map((p) => ({
         id: crypto.randomUUID(),
         id_producto: p.id,
         codigo: p.codigo_producto,
@@ -286,79 +308,216 @@ export default function PosVentaPage() {
         exento: p.exento_iva === 1,
         esPromo: !!p.es_promo,
         promoId: p.promoId,
-      })),
-    ]);
+      }));
+
+      const updated = [...prev, ...mapped];
+      sincronizarPreciosBackend(updated);
+      return updated;
+    });
     refocusScanner();
   };
 
+    const handleAgregarPromoArmadaAlCarrito = (promo: PromoArmada) => {
+    const promoId = promo.id;
+
+    setCarrito((prev) => [
+      ...prev,
+      ...promo.items.map((it) => ({
+        id: crypto.randomUUID(),
+        id_producto: it.id_producto,
+        codigo: it.codigo_producto,
+        nombre: it.nombre_producto,
+        // 🔹 POR AHORA usamos el precio normal del producto.
+        // Más adelante podemos aplicar el precio_promocion repartido
+        // y hacer que el backend lo respete.
+        precio: it.precio_venta,
+        cantidad: it.cantidad,
+        exento: it.exento_iva === 1,
+        esPromo: true,
+        promoId,
+      })),
+    ]);
+
+    setPromoArmadaOpen(false);
+    refocusScanner();
+  };
+
+
+
+    // ====================
+  // Sincronizar precios con backend (mayorista / exento / combos)
   // ====================
-  // Validación de pago actual (para input rojo y deshabilitar "+")
+
+  const sincronizarPreciosBackend = async (items: ItemCarrito[]) => {
+    // Si el carrito está vacío, no hacemos nada
+    if (!items || items.length === 0) return;
+
+    try {
+      const payloadItems = items.map((it) => ({
+        id_producto: it.id_producto,
+        cantidad: it.cantidad,
+        es_promo: it.esPromo ? 1 : 0,
+        promo_id: it.promoId ?? null,
+        // para que el backend pueda respetar promos gratis (hielo combo)
+        precio_unitario: it.precio,
+      }));
+
+      const res = await api.post("/ventas/previsualizar-pos", {
+        items: payloadItems,
+      });
+
+      const itemsSrv = res.data.items as Array<{
+        id_producto: number;
+        cantidad: number;
+        nombre_producto: string;
+        precio_unitario: number;
+        exento_iva: 0 | 1;
+        es_promo?: 0 | 1;
+        promo_id?: number | null;
+        es_mayorista?: 0 | 1; 
+      }>;
+
+      // Actualizamos el carrito manteniendo ids, flags y tags locales
+      setCarrito((prev) => {
+        // por seguridad, si cambió el largo, no tocamos nada
+        if (!prev.length || prev.length !== itemsSrv.length) return prev;
+
+        return prev.map((it, idx) => {
+          const srv = itemsSrv[idx];
+          if (!srv) return it;
+
+          return {
+            ...it,
+            nombre: srv.nombre_producto ?? it.nombre,
+            precio:
+              typeof srv.precio_unitario === "number"
+                ? srv.precio_unitario
+                : it.precio,
+            exento: srv.exento_iva === 1,
+            esMayorista: srv.es_mayorista === 1,
+          };
+        });
+      });
+    } catch (err: any) {
+      console.error("Error al previsualizar precios POS:", err);
+      // Opcional: podrías setear un error suave, pero mejor no bloquear la venta
+      // setError(err?.response?.data?.error || "No se pudo sincronizar precios con el servidor.");
+    }
+  };
+
+
+  // ====================
+  // Teclado numérico cantidad
+  // ====================
+
+  const abrirTecladoCantidad = (itemId: string, cantidadActual: number) => {
+    setQtyEditingItemId(itemId);
+    setQtyBuffer(String(cantidadActual));
+    setQtyDialogOpen(true);
+  };
+
+  const cerrarTecladoCantidad = () => {
+    setQtyDialogOpen(false);
+    setQtyEditingItemId(null);
+    setQtyBuffer("");
+    refocusScanner();
+  };
+
+  const handleKeypadDigit = (digit: string) => {
+    setQtyBuffer((prev) => {
+      const next = prev === "0" ? digit : prev + digit;
+      if (next.length > 4) return prev; // limitar a 4 dígitos
+      return next;
+    });
+  };
+
+  const handleKeypadClear = () => {
+    setQtyBuffer("");
+  };
+
+  const handleKeypadAccept = () => {
+    const nueva = parseInt(qtyBuffer, 10);
+    if (!qtyEditingItemId || isNaN(nueva) || nueva <= 0) {
+      cerrarTecladoCantidad();
+      return;
+    }
+
+    setCarrito((prev) =>
+      prev.map((it) =>
+        it.id === qtyEditingItemId ? { ...it, cantidad: nueva } : it
+      )
+    );
+
+    cerrarTecladoCantidad();
+  };
+
+  // ====================
+  // Validación de pago actual
   // ====================
 
   const obtenerErrorPagoActual = (): string | null => {
-  const monto = Number(nuevoMontoPago);
-  if (!monto || monto <= 0) return null; // no molestamos si no hay monto
+    const monto = Number(nuevoMontoPago);
+    if (!monto || monto <= 0) return null; // no molestamos si no hay monto
 
-  const saldoPendiente = total - totalPagos;
-  if (saldoPendiente <= 0) {
-    return "No hay saldo pendiente por cobrar.";
-  }
-
-  // Efectivo / giro siempre OK (aunque genere vuelto)
-  if (nuevoTipoPago === "EFECTIVO" || nuevoTipoPago === "GIRO") {
-    return null;
-  }
-
-  // ================================
-  // Medios NO efectivos (DEBITO / CREDITO / TRANSFERENCIA)
-  // ================================
-
-  // 0) Regla extra:
-  // Si el monto en EFECTIVO/GIRO ya alcanza o supera TODO el afecto,
-  // consideramos que el saldo pendiente corresponde solo a exentos.
-  const totalEfectivoGiroPrevio = pagos
-    .filter((p) => p.tipo === "EFECTIVO" || p.tipo === "GIRO")
-    .reduce((acc, p) => acc + p.monto, 0);
-
-  if (totalEfectivoGiroPrevio >= totalAfecto) {
-    return "El monto afecto ya está completamente cubierto con EFECTIVO o GIRO. El saldo restante corresponde solo a productos exentos y debe pagarse con EFECTIVO o GIRO.";
-  }
-
-  // 1) No puede pagar más que el saldo pendiente
-  if (monto > saldoPendiente) {
-    return "Con débito/crédito/transferencia no puedes ingresar un monto mayor al saldo pendiente ni generar vuelto.";
-  }
-
-  // 2) No puede superar el monto afecto total (regla SII clásica)
-  const pagosNoEfectivoPrevios = pagos
-    .filter((p) => p.tipo !== "EFECTIVO" && p.tipo !== "GIRO")
-    .reduce((acc, p) => acc + p.monto, 0);
-
-  const maxNoEfectivo = totalAfecto;
-  const nuevoTotalNoEfectivo = pagosNoEfectivoPrevios + monto;
-
-  if (nuevoTotalNoEfectivo > maxNoEfectivo) {
-    const maxDisponible = Math.max(
-      maxNoEfectivo - pagosNoEfectivoPrevios,
-      0
-    );
-
-    if (maxDisponible > 0) {
-      return `No puedes pagar todo con ${nuevoTipoPago} porque hay productos exentos. El máximo que puedes pagar con este medio es ${formatCLP(
-        maxDisponible
-      )}.`;
+    const saldoPendiente = total - totalPagos;
+    if (saldoPendiente <= 0) {
+      return "No hay saldo pendiente por cobrar.";
     }
 
-    return "Ya no puedes pagar más con débito/crédito/transferencia: el resto debe ser EFECTIVO o GIRO porque hay productos exentos.";
-  }
+    // Efectivo / giro siempre OK (aunque genere vuelto)
+    if (nuevoTipoPago === "EFECTIVO" || nuevoTipoPago === "GIRO") {
+      return null;
+    }
 
-  return null;
-};
+    // Medios NO efectivos (DEBITO / CREDITO / TRANSFERENCIA)
 
+    // 0) Si el monto en EFECTIVO/GIRO ya alcanza todo el afecto,
+    // el saldo restante se considera exento.
+    const totalEfectivoGiroPrevio = pagos
+      .filter((p) => p.tipo === "EFECTIVO" || p.tipo === "GIRO")
+      .reduce((acc, p) => acc + p.monto, 0);
+
+    if (totalEfectivoGiroPrevio >= totalAfecto) {
+      return "El monto afecto ya está completamente cubierto con EFECTIVO o GIRO. El saldo restante corresponde solo a productos exentos y debe pagarse con EFECTIVO o GIRO.";
+    }
+
+    // 1) No puede pagar más que el saldo pendiente
+    if (monto > saldoPendiente) {
+      return "Con débito/crédito/transferencia no puedes ingresar un monto mayor al saldo pendiente ni generar vuelto.";
+    }
+
+    // 2) No puede superar el monto afecto total
+    const pagosNoEfectivoPrevios = pagos
+      .filter((p) => p.tipo !== "EFECTIVO" && p.tipo !== "GIRO")
+      .reduce((acc, p) => acc + p.monto, 0);
+
+    const maxNoEfectivo = totalAfecto;
+    const nuevoTotalNoEfectivo = pagosNoEfectivoPrevios + monto;
+
+    if (nuevoTotalNoEfectivo > maxNoEfectivo) {
+      const maxDisponible = Math.max(
+        maxNoEfectivo - pagosNoEfectivoPrevios,
+        0
+      );
+
+      if (maxDisponible > 0) {
+        return `No puedes pagar todo con ${nuevoTipoPago} porque hay productos exentos. El máximo que puedes pagar con este medio es ${formatCLP(
+          maxDisponible
+        )}.`;
+      }
+
+      return "Ya no puedes pagar más con débito/crédito/transferencia: el resto debe ser EFECTIVO o GIRO porque hay productos exentos.";
+    }
+
+    return null;
+  };
 
   const errorPagoActual = obtenerErrorPagoActual();
   const montoIngresadoValido =
-    !!nuevoMontoPago && (!errorPagoActual || nuevoTipoPago === "EFECTIVO" || nuevoTipoPago === "GIRO");
+    !!nuevoMontoPago &&
+    (!errorPagoActual ||
+      nuevoTipoPago === "EFECTIVO" ||
+      nuevoTipoPago === "GIRO");
 
   // ====================
   // Pagos múltiples
@@ -444,22 +603,21 @@ export default function PosVentaPage() {
       return;
     }
 
-   // Falta plata → no se puede avanzar
-if (saldo > 0) {
-  setError(
-    "Los pagos no cubren el total de la venta. Revisa el saldo antes de cobrar."
-  );
-  return;
-}
+    // Falta plata → no se puede avanzar
+    if (saldo > 0) {
+      setError(
+        "Los pagos no cubren el total de la venta. Revisa el saldo antes de cobrar."
+      );
+      return;
+    }
 
-// Hay vuelto pero NO hay efectivo/giro → algo raro
-if (saldo < 0 && !tieneEfectivoOGiro) {
-  setError(
-    "Hay vuelto, pero no hay pagos en EFECTIVO o GIRO. Revisa los medios de pago."
-  );
-  return;
-}
-
+    // Hay vuelto pero NO hay efectivo/giro → algo raro
+    if (saldo < 0 && !tieneEfectivoOGiro) {
+      setError(
+        "Hay vuelto, pero no hay pagos en EFECTIVO o GIRO. Revisa los medios de pago."
+      );
+      return;
+    }
 
     setConfirmOpen(true);
   };
@@ -477,101 +635,97 @@ if (saldo < 0 && !tieneEfectivoOGiro) {
   };
 
   const handleConfirmarVenta = async () => {
-  try {
-    setError(null);
-    setSuccess(null);
-    setEnviando(true);
+    try {
+      setError(null);
+      setSuccess(null);
+      setEnviando(true);
 
-    const payloadItems = carrito.map((item) => ({
-      id_producto: item.id_producto,
-      cantidad: item.cantidad,
-      es_promo: item.esPromo ? 1 : 0,
-      promo_id: item.promoId ?? null,
-    }));
+      const payloadItems = carrito.map((item) => ({
+        id_producto: item.id_producto,
+        cantidad: item.cantidad,
+        es_promo: item.esPromo ? 1 : 0,
+        promo_id: item.promoId ?? null,
+      }));
 
-    // 🔹 Clonamos los pagos para poder ajustarlos sin perder la info original
-    const pagosAjustados: Pago[] = pagos.map((p) => ({ ...p }));
+      // Clonamos pagos para ajustar vuelto
+      const pagosAjustados: Pago[] = pagos.map((p) => ({ ...p }));
 
-    // Exceso = cuánto se pasó el cliente (vuelto)
-    let excesoPagos = totalPagos - total; // si es <= 0, no hay vuelto
+      let excesoPagos = totalPagos - total; // si es <= 0, no hay vuelto
 
-    if (excesoPagos > 0) {
-      // Restamos el exceso SOLO de pagos EFECTIVO / GIRO
-      for (const p of pagosAjustados) {
-        if (excesoPagos <= 0) break;
-        if (p.tipo === "EFECTIVO" || p.tipo === "GIRO") {
-          const reducible = Math.min(excesoPagos, p.monto);
-          p.monto -= reducible;
-          excesoPagos -= reducible;
+      if (excesoPagos > 0) {
+        // Restamos exceso solo de EFECTIVO / GIRO
+        for (const p of pagosAjustados) {
+          if (excesoPagos <= 0) break;
+          if (p.tipo === "EFECTIVO" || p.tipo === "GIRO") {
+            const reducible = Math.min(excesoPagos, p.monto);
+            p.monto -= reducible;
+            excesoPagos -= reducible;
+          }
+        }
+
+        if (excesoPagos > 0) {
+          console.warn(
+            "Quedó exceso de pagos después de ajustar el vuelto. Revisar lógica.",
+            excesoPagos
+          );
         }
       }
 
-      // Si por alguna razón sobró, lo registramos en consola para revisar
-      if (excesoPagos > 0) {
-        console.warn(
-          "Quedó exceso de pagos después de ajustar el vuelto. Revisar lógica.",
-          excesoPagos
-        );
-      }
+      const payloadPagos = pagosAjustados
+        .filter((p) => p.monto > 0)
+        .map((p) => ({
+          tipo: p.tipo,
+          monto: p.monto,
+        }));
+
+      const res = await api.post("/ventas/crear", {
+        items: payloadItems,
+        pagos: payloadPagos,
+        tipo_venta: "NORMAL",
+      });
+
+      setSuccess(`Venta registrada. ID: ${res.data.id_venta}`);
+      setCarrito([]);
+      setPagos([]);
+      setNuevoMontoPago("");
+      localStorage.removeItem(POS_STORAGE_KEY);
+      setConfirmOpen(false);
+      refocusScanner();
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        err?.response?.data?.error || "Error al registrar la venta POS."
+      );
+      setConfirmOpen(false);
+      refocusScanner();
+    } finally {
+      setEnviando(false);
     }
-
-    // No enviamos pagos de monto 0 al backend
-    const payloadPagos = pagosAjustados
-      .filter((p) => p.monto > 0)
-      .map((p) => ({
-        tipo: p.tipo,
-        monto: p.monto,
-      }));
-
-    const res = await api.post("/ventas/crear", {
-      items: payloadItems,
-      pagos: payloadPagos,
-      tipo_venta: "NORMAL",
-    });
-
-    setSuccess(`Venta registrada. ID: ${res.data.id_venta}`);
-    setCarrito([]);
-    setPagos([]);
-    setNuevoMontoPago("");
-    localStorage.removeItem(POS_STORAGE_KEY);
-    setConfirmOpen(false);
-    refocusScanner();
-  } catch (err: any) {
-    console.error(err);
-    setError(
-      err?.response?.data?.error || "Error al registrar la venta POS."
-    );
-    setConfirmOpen(false);
-    refocusScanner();
-  } finally {
-    setEnviando(false);
-  }
-};
-
+  };
 
   // ====================
   // Render
   // ====================
 
   return (
-    <Box sx={{height: "calc(100vh - 50px)",}}>
+    <Box sx={{ height: "calc(100vh - 50px)" }}>
       <Box
         display="flex"
         flexDirection={{ xs: "column", md: "row" }}
         gap={2}
-        sx={{height: "100%"}}
+        sx={{ height: "100%" }}
       >
         {/* IZQUIERDA: Carrito */}
         <Box flex={{ xs: 1, md: 3 }}>
-         <Paper
-              sx={{
-                p: 2,
-                height: "100%",            
-                display: "flex",
-                flexDirection: "column",
-                gap: 2,
-              }}
-            >
+          <Paper
+            sx={{
+              p: 2,
+              height: "100%",
+              display: "flex",
+              flexDirection: "column",
+              gap: 2,
+            }}
+          >
             {/* Escáner */}
             <Box component="form" onSubmit={handleAgregarProductoPorCodigo}>
               <Typography variant="subtitle2" color="text.secondary" mb={0.5}>
@@ -630,6 +784,18 @@ if (saldo < 0 && !tieneEfectivoOGiro) {
                                 }}
                               />
                             )}
+                            {item.esMayorista && (
+                            <Chip
+                              label="Mayorista"
+                              size="small"
+                              color="success"
+                              sx={{
+                                ml: 0.5,
+                                height: 18,
+                                fontSize: "0.7rem",
+                              }}
+                            />
+                          )}
                           </Typography>
                           <Typography
                             variant="caption"
@@ -666,7 +832,14 @@ if (saldo < 0 && !tieneEfectivoOGiro) {
                           </IconButton>
                           <Typography
                             variant="body2"
-                            sx={{ minWidth: 24, textAlign: "center" }}
+                            sx={{
+                              minWidth: 24,
+                              textAlign: "center",
+                              cursor: "pointer",
+                            }}
+                            onClick={() =>
+                              abrirTecladoCantidad(item.id, item.cantidad)
+                            }
                           >
                             {item.cantidad}
                           </Typography>
@@ -718,7 +891,7 @@ if (saldo < 0 && !tieneEfectivoOGiro) {
         </Box>
 
         {/* DERECHA: resumen + pagos + promos */}
-        <Box flex={{ xs: 1, md: 2, }}>
+        <Box flex={{ xs: 1, md: 2 }}>
           <Paper
             sx={{
               p: 2,
@@ -726,7 +899,7 @@ if (saldo < 0 && !tieneEfectivoOGiro) {
               display: "flex",
               flexDirection: "column",
               gap: 2,
-              overflow: "auto"
+              overflow: "auto",
             }}
           >
             {error && (
@@ -741,7 +914,7 @@ if (saldo < 0 && !tieneEfectivoOGiro) {
             )}
 
             {/* Resumen */}
-            <Box >
+            <Box>
               <Typography variant="subtitle1" fontWeight={600}>
                 Resumen
               </Typography>
@@ -783,9 +956,7 @@ if (saldo < 0 && !tieneEfectivoOGiro) {
                   <MenuItem value="GIRO">Giro</MenuItem>
                   <MenuItem value="DEBITO">Débito</MenuItem>
                   <MenuItem value="CREDITO">Crédito</MenuItem>
-                  <MenuItem value="TRANSFERENCIA">
-                    Transferencia
-                  </MenuItem>
+                  <MenuItem value="TRANSFERENCIA">Transferencia</MenuItem>
                 </TextField>
 
                 <TextField
@@ -797,9 +968,7 @@ if (saldo < 0 && !tieneEfectivoOGiro) {
                   fullWidth
                   error={!!errorPagoActual && !!nuevoMontoPago}
                   helperText={
-                    !!nuevoMontoPago && errorPagoActual
-                      ? errorPagoActual
-                      : ""
+                    !!nuevoMontoPago && errorPagoActual ? errorPagoActual : ""
                   }
                 />
 
@@ -821,6 +990,17 @@ if (saldo < 0 && !tieneEfectivoOGiro) {
                   </Button>
                 </Stack>
               </Stack>
+                            <Stack direction="row" spacing={1} mt={1}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<CalculateIcon />}
+                  onClick={() => setCalcOpen(true)}
+                >
+                  Calculadora
+                </Button>
+              </Stack>
+
 
               {/* Advertencia contextual exentos + tarjeta */}
               {totalExento > 0 &&
@@ -832,9 +1012,9 @@ if (saldo < 0 && !tieneEfectivoOGiro) {
                     display="block"
                     sx={{ mt: 0.5 }}
                   >
-                    Hay productos exentos por {formatCLP(totalExento)}. Ese monto
-                    solo puede pagarse con <strong>EFECTIVO o GIRO</strong>. Este
-                    medio se aplicará solo al monto afecto.
+                    Hay productos exentos por {formatCLP(totalExento)}. Ese
+                    monto solo puede pagarse con <strong>EFECTIVO o GIRO</strong>.
+                    Este medio se aplicará solo al monto afecto.
                   </Typography>
                 )}
 
@@ -889,8 +1069,7 @@ if (saldo < 0 && !tieneEfectivoOGiro) {
 
               <Box mt={1} textAlign="right">
                 <Typography variant="body2">
-                  Total pagos:{" "}
-                  <strong>{formatCLP(totalPagos)}</strong>
+                  Total pagos: <strong>{formatCLP(totalPagos)}</strong>
                 </Typography>
                 <Typography
                   variant="body2"
@@ -996,6 +1175,23 @@ if (saldo < 0 && !tieneEfectivoOGiro) {
                 El licor y la bebida se cobran normal. El hielo 1kg va de
                 regalo.
               </Typography>
+              <Button
+                  fullWidth
+                  variant="outlined"
+                  startIcon={<LocalOfferIcon />}
+                  sx={{ mt: 1 }}
+                  onClick={() => setPromoArmadaOpen(true)}
+                >
+                  Seleccionar promoción armada
+                </Button>
+                 <Typography
+                variant="caption"
+                color="text.secondary"
+                display="block"
+                sx={{ mt: 0.5 }}
+              >
+                Selecciona una promocion creada por el Administrador.
+              </Typography>
             </Box>
 
             <Box sx={{ flex: 1 }} />
@@ -1014,7 +1210,6 @@ if (saldo < 0 && !tieneEfectivoOGiro) {
             </Button>
           </Paper>
         </Box>
-        
       </Box>
 
       {/* Modal scanner promos */}
@@ -1024,298 +1219,368 @@ if (saldo < 0 && !tieneEfectivoOGiro) {
         onPromoAdd={handlePromoAddToCart}
         buscarProductoPorCodigo={buscarProductoPorCodigo}
       />
+      {/* Modal de promociones armadas */}
+      <PromoArmadaModalPOS
+        open={promoArmadaOpen}
+        onClose={() => setPromoArmadaOpen(false)}
+        onSelectPromo={handleAgregarPromoArmadaAlCarrito}
+      />
+
+      <CalculadoraModalPOS
+        open={calcOpen}
+        onClose={() => setCalcOpen(false)}
+        onResult={(valor) => {
+          // usar el resultado para llenar el monto de pago
+          setCalcOpen(false);
+        }}
+      />
+
+
+      {/* Dialog: teclado numérico para cantidad */}
+      <Dialog
+        open={qtyDialogOpen}
+        onClose={cerrarTecladoCantidad}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Ingresar cantidad</DialogTitle>
+        <DialogContent>
+          <Box
+            sx={{
+              textAlign: "center",
+              mb: 2,
+              fontSize: 32,
+              fontWeight: 700,
+            }}
+          >
+            {qtyBuffer || "0"}
+          </Box>
+
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: 1,
+            }}
+          >
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
+              <Button
+                key={n}
+                variant="outlined"
+                onClick={() => handleKeypadDigit(String(n))}
+              >
+                {n}
+              </Button>
+            ))}
+            <Box />
+            <Button variant="outlined" onClick={() => handleKeypadDigit("0")}>
+              0
+            </Button>
+            <Button variant="outlined" color="warning" onClick={handleKeypadClear}>
+              Borrar
+            </Button>
+          </Box>
+
+          <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 2, gap: 1 }}>
+            <Button onClick={cerrarTecladoCantidad}>Cancelar</Button>
+            <Button variant="contained" onClick={handleKeypadAccept}>
+              Aceptar
+            </Button>
+          </Box>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal de confirmación de venta */}
-  <Dialog
-  open={confirmOpen}
-  onClose={() => setConfirmOpen(false)}
-  maxWidth="md"
-  fullWidth
-  PaperProps={{
-    sx: {
-      borderRadius: 3,
-      overflow: "hidden",
-      bgcolor: "background.paper",
-    },
-  }}
->
-  {/* HEADER */}
-  <DialogTitle
-    sx={{
-      px: 3,
-      py: 2,
-      bgcolor: "primary.main",
-      color: "primary.contrastText",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-    }}
-  >
-    <Box>
-      <Typography variant="caption" sx={{ opacity: 0.9 }}>
-        Confirmación de venta POS
-      </Typography>
-      <Typography variant="h6" fontWeight={700}>
-        Revisa el resumen antes de guardar
-      </Typography>
-    </Box>
-    <Box textAlign="right">
-      <Typography variant="caption" sx={{ opacity: 0.8 }}>
-        Total a cobrar
-      </Typography>
-      <Typography variant="h6" fontWeight={800}>
-        {formatCLP(total)}
-      </Typography>
-    </Box>
-  </DialogTitle>
-
-  {/* CONTENIDO */}
-  <DialogContent
-    dividers
-    sx={{
-      p: 3,
-      bgcolor: "background.default",
-    }}
-  >
-    {/* RESUMEN ARRIBA */}
-    <Box
-      sx={{
-        mb: 2,
-        p: 2,
-        borderRadius: 1,
-        display: "flex",
-        flexDirection: { xs: "column", sm: "row" },
-        gap: 2,
-        bgcolor: (t) =>
-          isDark
-            ? alpha(t.palette.background.paper, 0.9)
-            : t.palette.background.paper,
-        boxShadow: isDark
-          ? "0 0 0 1px rgba(148,163,184,0.25)"
-          : "0 0 0 1px rgba(15,23,42,0.06)",
-      }}
-    >
-      <Box flex={1}>
-        <Typography variant="caption" color="text.secondary">
-          Ítems
-        </Typography>
-        <Typography variant="h6" fontWeight={700}>
-          {totalItems}
-        </Typography>
-      </Box>
-
-      <Box flex={1}>
-        <Typography variant="caption" color="text.secondary">
-          Afecto
-        </Typography>
-        <Typography variant="body1" fontWeight={600}>
-          {formatCLP(totalAfecto)}
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          Exento:{" "}
-          <Box component="span" fontWeight={600}>
-            {formatCLP(totalExento)}
-          </Box>
-        </Typography>
-      </Box>
-
-      <Box
-        flex={1}
-        sx={{ textAlign: { xs: "left", sm: "right" } }}
+      <Dialog
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            overflow: "hidden",
+            bgcolor: "background.paper",
+          },
+        }}
       >
-        <Typography variant="caption" color="text.secondary">
-          Total pagos
-        </Typography>
-        <Typography variant="body1" fontWeight={600}>
-          {formatCLP(totalPagos)}
-        </Typography>
-        {vuelto > 0 && tieneEfectivoOGiro && (
-          <Typography variant="caption" color="success.main">
-            Vuelto:{" "}
-            <Box component="span" fontWeight={700}>
-              {formatCLP(vuelto)}
-            </Box>
-          </Typography>
-        )}
-      </Box>
-    </Box>
-
-    {/* DOS COLUMNAS: PRODUCTOS / PAGOS */}
-    <Box
-      sx={{
-        display: "flex",
-        flexDirection: { xs: "column", md: "row" },
-        gap: 2,
-      }}
-    >
-      {/* PRODUCTOS */}
-      <Box flex={3}>
-        <Typography
-          variant="subtitle2"
-          gutterBottom
-          sx={{ display: "flex", justifyContent: "space-between" }}
-        >
-          Productos
-          <Typography variant="caption" color="text.secondary">
-            {carrito.length} líneas
-          </Typography>
-        </Typography>
-        <Paper
-          variant="outlined"
+        {/* HEADER */}
+        <DialogTitle
           sx={{
-            maxHeight: 220,
-            overflow: "auto",
-            borderRadius: 0.5,
-            bgcolor: "background.paper",
+            px: 3,
+            py: 2,
+            bgcolor: "primary.main",
+            color: "primary.contrastText",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
           }}
         >
-          <Table size="small" stickyHeader>
-            <TableHead>
-              <TableRow>
-                <TableCell>Producto</TableCell>
-                <TableCell align="right">Cant.</TableCell>
-                <TableCell align="right">Precio</TableCell>
-                <TableCell align="right">Subtotal</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {carrito.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell>
-                    <Typography variant="body2" fontWeight={500}>
-                      {item.nombre}
-                      {item.esPromo && (
-                        <Chip
-                          label="Combo"
-                          size="small"
-                          color="secondary"
-                          sx={{
-                            ml: 1,
-                            fontSize: "0.7rem",
-                            height: 18,
-                          }}
-                        />
-                      )}
-                    </Typography>
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                    >
-                      {item.codigo}
-                    </Typography>
-                  </TableCell>
-                  <TableCell align="right">{item.cantidad}</TableCell>
-                  <TableCell align="right">
-                    {formatCLP(item.precio)}
-                  </TableCell>
-                  <TableCell align="right">
-                    {formatCLP(subtotalItem(item))}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Paper>
-      </Box>
+          <Box>
+            <Typography variant="caption" sx={{ opacity: 0.9 }}>
+              Confirmación de venta POS
+            </Typography>
+            <Typography variant="h6" fontWeight={700}>
+              Revisa el resumen antes de guardar
+            </Typography>
+          </Box>
+          <Box textAlign="right">
+            <Typography variant="caption" sx={{ opacity: 0.8 }}>
+              Total a cobrar
+            </Typography>
+            <Typography variant="h6" fontWeight={800}>
+              {formatCLP(total)}
+            </Typography>
+          </Box>
+        </DialogTitle>
 
-      {/* PAGOS */}
-      <Box flex={2}>
-        <Typography variant="subtitle2" gutterBottom>
-          Medios de pago
-        </Typography>
-        <Paper
-          variant="outlined"
+        {/* CONTENIDO */}
+        <DialogContent
+          dividers
           sx={{
-            maxHeight: 220,
-            overflow: "auto",
-            borderRadius: 0.5,
-            bgcolor: "background.paper",
-            mb: 1,
+            p: 3,
+            bgcolor: "background.default",
           }}
         >
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Medio</TableCell>
-                <TableCell align="right">Monto</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {pagos.map((p) => (
-                <TableRow key={p.id}>
-                  <TableCell>
-                    <Chip
-                      label={p.tipo}
-                      size="small"
-                      sx={{ fontSize: "0.7rem" }}
-                    />
-                  </TableCell>
-                  <TableCell align="right">
-                    {formatCLP(p.monto)}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Paper>
-
-        <Box>
-          <Typography variant="body2">
-            Total pagos:{" "}
-            <Box component="span" fontWeight={700}>
-              {formatCLP(totalPagos)}
+          {/* RESUMEN ARRIBA */}
+          <Box
+            sx={{
+              mb: 2,
+              p: 2,
+              borderRadius: 1,
+              display: "flex",
+              flexDirection: { xs: "column", sm: "row" },
+              gap: 2,
+              bgcolor: (t) =>
+                isDark
+                  ? alpha(t.palette.background.paper, 0.9)
+                  : t.palette.background.paper,
+              boxShadow: isDark
+                ? "0 0 0 1px rgba(148,163,184,0.25)"
+                : "0 0 0 1px rgba(15,23,42,0.06)",
+            }}
+          >
+            <Box flex={1}>
+              <Typography variant="caption" color="text.secondary">
+                Ítems
+              </Typography>
+              <Typography variant="h6" fontWeight={700}>
+                {totalItems}
+              </Typography>
             </Box>
-          </Typography>
 
-          {vuelto > 0 && tieneEfectivoOGiro && (
+            <Box flex={1}>
+              <Typography variant="caption" color="text.secondary">
+                Afecto
+              </Typography>
+              <Typography variant="body1" fontWeight={600}>
+                {formatCLP(totalAfecto)}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Exento:{" "}
+                <Box component="span" fontWeight={600}>
+                  {formatCLP(totalExento)}
+                </Box>
+              </Typography>
+            </Box>
+
             <Box
-              sx={{
-                mt: 1,
-                p: 1.2,
-                borderRadius: 3,
-                bgcolor: "success.main",
-                color: "success.contrastText",
-                textAlign: "center",
-              }}
+              flex={1}
+              sx={{ textAlign: { xs: "left", sm: "right" } }}
             >
-              <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                Vuelto al cliente
+              <Typography variant="caption" color="text.secondary">
+                Total pagos
               </Typography>
-              <Typography variant="h6" fontWeight={800}>
-                {formatCLP(vuelto)}
+              <Typography variant="body1" fontWeight={600}>
+                {formatCLP(totalPagos)}
               </Typography>
+              {vuelto > 0 && tieneEfectivoOGiro && (
+                <Typography variant="caption" color="success.main">
+                  Vuelto:{" "}
+                  <Box component="span" fontWeight={700}>
+                    {formatCLP(vuelto)}
+                  </Box>
+                </Typography>
+              )}
             </Box>
-          )}
-        </Box>
-      </Box>
-    </Box>
+          </Box>
 
-    <Box mt={2}>
-      <Typography variant="caption" color="text.secondary">
-        Revisa que productos, totales y medios de pago coincidan con lo
-        entregado por el cliente antes de confirmar la venta.
-      </Typography>
-    </Box>
-  </DialogContent>
+          {/* DOS COLUMNAS: PRODUCTOS / PAGOS */}
+          <Box
+            sx={{
+              display: "flex",
+              flexDirection: { xs: "column", md: "row" },
+              gap: 2,
+            }}
+          >
+            {/* PRODUCTOS */}
+            <Box flex={3}>
+              <Typography
+                variant="subtitle2"
+                gutterBottom
+                sx={{ display: "flex", justifyContent: "space-between" }}
+              >
+                Productos
+                <Typography variant="caption" color="text.secondary">
+                  {carrito.length} líneas
+                </Typography>
+              </Typography>
+              <Paper
+                variant="outlined"
+                sx={{
+                  maxHeight: 220,
+                  overflow: "auto",
+                  borderRadius: 0.5,
+                  bgcolor: "background.paper",
+                }}
+              >
+                <Table size="small" stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Producto</TableCell>
+                      <TableCell align="right">Cant.</TableCell>
+                      <TableCell align="right">Precio</TableCell>
+                      <TableCell align="right">Subtotal</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {carrito.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell>
+                          <Typography variant="body2" fontWeight={500}>
+                            {item.nombre}
+                            {item.esPromo && (
+                              <Chip
+                                label="Combo"
+                                size="small"
+                                color="secondary"
+                                sx={{
+                                  ml: 1,
+                                  fontSize: "0.7rem",
+                                  height: 18,
+                                }}
+                              />
+                            )}
+                          </Typography>
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                          >
+                            {item.codigo}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">{item.cantidad}</TableCell>
+                        <TableCell align="right">
+                          {formatCLP(item.precio)}
+                        </TableCell>
+                        <TableCell align="right">
+                          {formatCLP(subtotalItem(item))}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Paper>
+            </Box>
 
-  {/* ACCIONES */}
-  <DialogActions sx={{ p: 2.5 }}>
-    <Button onClick={() => setConfirmOpen(false)}>Seguir editando</Button>
-    <Button variant="outlined" onClick={handleGenerarVoucherPreview}>
-      Generar voucher
-    </Button>
-    <Button
-      variant="contained"
-      color="primary"
-      onClick={handleConfirmarVenta}
-      disabled={enviando}
-    >
-      Confirmar venta
-    </Button>
-  </DialogActions>
-</Dialog>
+            {/* PAGOS */}
+            <Box flex={2}>
+              <Typography variant="subtitle2" gutterBottom>
+                Medios de pago
+              </Typography>
+              <Paper
+                variant="outlined"
+                sx={{
+                  maxHeight: 220,
+                  overflow: "auto",
+                  borderRadius: 0.5,
+                  bgcolor: "background.paper",
+                  mb: 1,
+                }}
+              >
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Medio</TableCell>
+                      <TableCell align="right">Monto</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {pagos.map((p) => (
+                      <TableRow key={p.id}>
+                        <TableCell>
+                          <Chip
+                            label={p.tipo}
+                            size="small"
+                            sx={{ fontSize: "0.7rem" }}
+                          />
+                        </TableCell>
+                        <TableCell align="right">
+                          {formatCLP(p.monto)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Paper>
 
+              <Box>
+                <Typography variant="body2">
+                  Total pagos:{" "}
+                  <Box component="span" fontWeight={700}>
+                    {formatCLP(totalPagos)}
+                  </Box>
+                </Typography>
 
+                {vuelto > 0 && tieneEfectivoOGiro && (
+                  <Box
+                    sx={{
+                      mt: 1,
+                      p: 1.2,
+                      borderRadius: 3,
+                      bgcolor: "success.main",
+                      color: "success.contrastText",
+                      textAlign: "center",
+                    }}
+                  >
+                    <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                      Vuelto al cliente
+                    </Typography>
+                    <Typography variant="h6" fontWeight={800}>
+                      {formatCLP(vuelto)}
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+            </Box>
+          </Box>
+
+          <Box mt={2}>
+            <Typography variant="caption" color="text.secondary">
+              Revisa que productos, totales y medios de pago coincidan con lo
+              entregado por el cliente antes de confirmar la venta.
+            </Typography>
+          </Box>
+        </DialogContent>
+
+        {/* ACCIONES */}
+        <DialogActions sx={{ p: 2.5 }}>
+          <Button onClick={() => setConfirmOpen(false)}>
+            Seguir editando
+          </Button>
+          <Button variant="outlined" onClick={handleGenerarVoucherPreview}>
+            Generar voucher
+          </Button>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={handleConfirmarVenta}
+            disabled={enviando}
+          >
+            Confirmar venta
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
