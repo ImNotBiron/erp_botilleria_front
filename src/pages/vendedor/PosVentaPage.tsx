@@ -37,6 +37,9 @@ import { CalculadoraModalPOS } from "../../components/pos/CalculadoraModalPOS";
 import { PromoScannerModalPOS } from "../../components/pos/PromoScannerModalPos";
 import type { PromoCartItem } from "../../components/pos/PromoScannerModalPos";
 import { PromoArmadaModalPOS , type PromoArmada } from "../../components/pos/PromoArmadaModalPOS";
+import { buildVoucherText, type VoucherData } from "../../utils/voucherText";
+import { VoucherPrintButtons } from "../../components/voucher/VoucherPrintButtons";
+import { QuantityModalPOS } from "../../components/pos/QuantityModalPOS";
 
 type MedioPago = "EFECTIVO" | "GIRO" | "DEBITO" | "CREDITO" | "TRANSFERENCIA";
 
@@ -45,24 +48,17 @@ type ItemCarrito = {
   id_producto: number;
   codigo: string;
   nombre: string;
-  precio: number;          // precio actual que se usa en el subtotal
-  precioBase: number;      // precio normal (precio_venta)
+  precio: number;           // precio unitario que se está usando en el POS
   cantidad: number;
   exento: boolean;
   esPromo?: boolean;
   promoId?: number;
-  promoTipo?: "SCANNER" | "ARMADA";
-  // mayorista:
-  cantidadMayorista?: number | null;
+
+  // --- datos para mayorista ---
+  precioBase?: number;          // precio_venta normal
   precioMayorista?: number | null;
+  cantidadMayorista?: number | null;
   esMayorista?: boolean;
-};
-
-
-type Pago = {
-  id: string;
-  tipo: MedioPago;
-  monto: number;
 };
 
 interface ProductoApi {
@@ -73,9 +69,19 @@ interface ProductoApi {
   exento_iva: 0 | 1;
   capacidad_ml?: number | null;
   id_categoria?: number | null;
-  cantidad_mayorista?: number | null;   // 👈
-  precio_mayorista?: number | null;     // 👈
+
+  // mayorista (vienen desde la API)
+  cantidad_mayorista?: number | null;
+  precio_mayorista?: number | null;
 }
+
+
+
+type Pago = {
+  id: string;
+  tipo: MedioPago;
+  monto: number;
+};
 
 
 const formatCLP = (value: number) =>
@@ -125,6 +131,49 @@ export default function PosVentaPage() {
 
   // Flag para no sobreescribir el storage antes de cargar
   const [draftLoaded, setDraftLoaded] = useState(false);
+
+  //Voucher
+const [voucherPreviewOpen, setVoucherPreviewOpen] = useState(false);
+const [voucherPreviewText, setVoucherPreviewText] = useState<string>("");
+
+// Modal cantidad
+const [cantidadModalOpen, setCantidadModalOpen] = useState(false);
+const [itemCantidadTarget, setItemCantidadTarget] = useState<ItemCarrito | null>(null);
+
+
+const aplicarMayorista = (
+  item: ItemCarrito,
+  nuevaCantidad: number,
+  prodInfo?: ProductoApi
+): ItemCarrito => {
+  const base = item.precioBase ?? prodInfo?.precio_venta ?? item.precio;
+
+  const cantMay =
+    item.cantidadMayorista ?? prodInfo?.cantidad_mayorista ?? 0;
+
+  const precioMay =
+    item.precioMayorista ?? prodInfo?.precio_mayorista ?? 0;
+
+  let precioUnit = base;
+  let esMayorista = false;
+
+  if (cantMay && precioMay && nuevaCantidad >= cantMay) {
+    precioUnit = precioMay;
+    esMayorista = true;
+  }
+
+  return {
+    ...item,
+    cantidad: nuevaCantidad,
+    precio: precioUnit,
+    precioBase: base,
+    cantidadMayorista: cantMay || undefined,
+    precioMayorista: precioMay || undefined,
+    esMayorista,
+  };
+};
+
+
 
   // ====================
   // Totales
@@ -269,29 +318,22 @@ const handleAgregarProductoPorCodigo = async (
     const prod = await buscarProductoPorCodigo(cod);
 
     setCarrito((prev) => {
-      // Buscar si ya existe en el carrito un producto "normal" con el mismo id
-      const index = prev.findIndex(
-        (item) =>
-          !item.esPromo && // no mezclar con combos
-          item.id_producto === prod.id
+      // ¿ya existe este producto (no promo) en el carrito?
+      const idx = prev.findIndex(
+        (it) => !it.esPromo && it.id_producto === prod.id
       );
 
-      // Si ya existe → solo sumamos 1 a la cantidad
-      if (index !== -1) {
+      // Si ya existe → solo sumamos cantidad y recalculamos mayorista
+      if (idx >= 0) {
         const updated = [...prev];
-        const existente = updated[index];
-
-        updated[index] = {
-          ...existente,
-          cantidad: existente.cantidad + 1,
-        };
-
+        const actual = updated[idx];
+        const nuevaCant = actual.cantidad + 1;
+        updated[idx] = aplicarMayorista(actual, nuevaCant, prod);
         return updated;
       }
 
-      // Si no existe → agregamos una fila nueva
-      return [
-        ...prev,
+      // Si no existe → lo agregamos nuevo
+      const nuevo: ItemCarrito = aplicarMayorista(
         {
           id: crypto.randomUUID(),
           id_producto: prod.id,
@@ -300,10 +342,16 @@ const handleAgregarProductoPorCodigo = async (
           precio: prod.precio_venta,
           cantidad: 1,
           exento: prod.exento_iva === 1,
-          esPromo: false,
-          promoId: undefined,
-        } as ItemCarrito,
-      ];
+          precioBase: prod.precio_venta,
+          cantidadMayorista: prod.cantidad_mayorista ?? undefined,
+          precioMayorista: prod.precio_mayorista ?? undefined,
+          esMayorista: false,
+        },
+        1,
+        prod
+      );
+
+      return [...prev, nuevo];
     });
 
     setCodigo("");
@@ -317,9 +365,6 @@ const handleAgregarProductoPorCodigo = async (
     refocusScanner();
   }
 };
-
-
-
 
    const handleEliminarItem = (id: string) => {
   setCarrito((prev) => {
@@ -340,39 +385,55 @@ const handleAgregarProductoPorCodigo = async (
 
 
 
- const cambiarCantidad = (id: string, delta: number) => {
+const cambiarCantidad = (id: string, delta: number) => {
   setCarrito((prev) =>
     prev.map((item) => {
       if (item.id !== id) return item;
 
-      let nuevaCant = item.cantidad + delta;
-      if (nuevaCant <= 0) nuevaCant = 1;
-
-      let nuevoPrecio = item.precioBase; // por defecto, precio normal
-      let esMayorista = false;
-
-      if (
-        item.cantidadMayorista != null &&
-        item.cantidadMayorista > 0 &&
-        item.precioMayorista != null &&
-        item.precioMayorista > 0 &&
-        nuevaCant >= item.cantidadMayorista
-      ) {
-        nuevoPrecio = item.precioMayorista;
-        esMayorista = true;
+      // ⛔ NO permitir editar cantidades de ítems de promoción (combos)
+      if (item.esPromo) {
+        return item;
       }
 
-      return {
-        ...item,
-        cantidad: nuevaCant,
-        precio: nuevoPrecio,
-        esMayorista,
-      };
+      const nuevaCant = Math.max(1, item.cantidad + delta);
+      return aplicarMayorista(item, nuevaCant);
+    })
+  );
+  refocusScanner();
+};
+
+const handleOpenCantidadModal = (item: ItemCarrito) => {
+  // No permitir editar combos
+  if (item.esPromo) return;
+  setItemCantidadTarget(item);
+  setCantidadModalOpen(true);
+};
+
+const handleConfirmCantidadModal = (nuevaCantidad: number) => {
+  if (!itemCantidadTarget) {
+    setCantidadModalOpen(false);
+    return;
+  }
+
+  setCarrito((prev) =>
+    prev.map((it) => {
+      if (it.id !== itemCantidadTarget.id) return it;
+      return aplicarMayorista(it, nuevaCantidad);
     })
   );
 
+  setCantidadModalOpen(false);
+  setItemCantidadTarget(null);
   refocusScanner();
 };
+
+const handleCloseCantidadModal = () => {
+  setCantidadModalOpen(false);
+  setItemCantidadTarget(null);
+  refocusScanner();
+};
+
+
 
 
 
@@ -729,16 +790,56 @@ const handleAgregarProductoPorCodigo = async (
   };
 
   const handleGenerarVoucherPreview = () => {
-    // Aquí podrías abrir un modal de voucher real, o una nueva ventana, etc.
-    console.log("Generar voucher preliminar (simulado)", {
-      carrito,
-      pagos,
-      total,
-      totalAfecto,
-      totalExento,
-      vuelto,
-    });
+  setError(null);
+  setSuccess(null);
+
+  if (!carrito.length) {
+    setError("No hay productos en el carrito para generar el voucher.");
+    return;
+  }
+
+  if (!pagos.length) {
+    setError("Debes ingresar al menos un medio de pago antes de generar el voucher.");
+    return;
+  }
+
+  // Armamos una "cabecera" temporal (sin id de venta real)
+  const cabecera = {
+    id: 0, // aún no se registra la venta
+    fecha: new Date().toISOString(),
+    tipo_venta: "NORMAL" as const,
+    total_general: total,
+    total_afecto: totalAfecto,
+    total_exento: totalExento,
+    id_caja_sesion: 0, // si quieres, luego lo puedes reemplazar por el real
   };
+
+  const itemsVoucher = carrito.map((it) => ({
+    nombre_producto: it.nombre,
+    cantidad: it.cantidad,
+    precio_unitario: it.precio,
+    precio_final: it.precio * it.cantidad,
+    exento_iva: it.exento ? 1 : 0,
+    es_promo: it.esPromo ? 1 : 0,
+  }));
+
+  const pagosVoucher = pagos.map((p) => ({
+    tipo_pago: p.tipo,
+    monto: p.monto,
+  }));
+
+  const data: VoucherData = {
+    cabecera,
+    items: itemsVoucher,
+    pagos: pagosVoucher,
+  };
+
+  const texto = buildVoucherText(data, "Botillería El Paraíso");
+
+  setVoucherPreviewText(texto);
+  setVoucherPreviewOpen(true);
+};
+
 
   const handleConfirmarVenta = async () => {
     try {
@@ -924,40 +1025,53 @@ const handleAgregarProductoPorCodigo = async (
                           </Typography>
                         </Box>
                       </TableCell>
-                      <TableCell align="right">
-                        <Stack
-                          direction="row"
-                          spacing={0.5}
-                          justifyContent="flex-end"
-                          alignItems="center"
-                        >
-                          <IconButton
-                            size="small"
-                            onClick={() => cambiarCantidad(item.id, -1)}
-                          >
-                            <RemoveIcon fontSize="small" />
-                          </IconButton>
+                   <TableCell align="right">
+                        {item.esPromo ? (
+                          // Combos: solo mostramos la cantidad, sin interacción
                           <Typography
                             variant="body2"
-                            sx={{
-                              minWidth: 24,
-                              textAlign: "center",
-                              cursor: "pointer",
-                            }}
-                            onClick={() =>
-                              abrirTecladoCantidad(item.id, item.cantidad)
-                            }
+                            sx={{ minWidth: 24, textAlign: "center" }}
                           >
                             {item.cantidad}
                           </Typography>
-                          <IconButton
-                            size="small"
-                            onClick={() => cambiarCantidad(item.id, 1)}
+                        ) : (
+                          <Stack
+                            direction="row"
+                            spacing={0.5}
+                            justifyContent="flex-end"
+                            alignItems="center"
                           >
-                            <AddIcon fontSize="small" />
-                          </IconButton>
-                        </Stack>
+                            <IconButton
+                              size="small"
+                              onClick={() => cambiarCantidad(item.id, -1)}
+                            >
+                              <RemoveIcon fontSize="small" />
+                            </IconButton>
+
+                            {/* 👇 Clic en el número abre el modal con teclado */}
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                minWidth: 24,
+                                textAlign: "center",
+                                cursor: "pointer",
+                                textDecoration: "underline",
+                              }}
+                              onClick={() => handleOpenCantidadModal(item)}
+                            >
+                              {item.cantidad}
+                            </Typography>
+
+                            <IconButton
+                              size="small"
+                              onClick={() => cambiarCantidad(item.id, 1)}
+                            >
+                              <AddIcon fontSize="small" />
+                            </IconButton>
+                          </Stack>
+                        )}
                       </TableCell>
+
                       <TableCell align="right">
                         {formatCLP(item.precio)}
                       </TableCell>
@@ -1341,6 +1455,14 @@ const handleAgregarProductoPorCodigo = async (
           setCalcOpen(false);
         }}
       />
+      
+      <QuantityModalPOS
+        open={cantidadModalOpen}
+        initialValue={itemCantidadTarget?.cantidad ?? 1}
+        onClose={handleCloseCantidadModal}
+        onConfirm={handleConfirmCantidadModal}
+      />
+
 
 
       {/* Dialog: teclado numérico para cantidad */}
@@ -1688,6 +1810,71 @@ const handleAgregarProductoPorCodigo = async (
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Modal de pre-voucher (antes de confirmar venta) */}
+<Dialog
+  open={voucherPreviewOpen}
+  onClose={() => setVoucherPreviewOpen(false)}
+  maxWidth="xs"
+  fullWidth
+  PaperProps={{
+    sx: {
+      borderRadius: 3,
+      overflow: "hidden",
+    },
+  }}
+>
+  <DialogTitle>Voucher preliminar</DialogTitle>
+
+  <DialogContent
+    dividers
+    sx={{
+      bgcolor: "background.default",
+    }}
+  >
+    <Typography variant="caption" color="text.secondary">
+      Este es un comprobante previo. Aún no se ha guardado la venta en el
+      sistema.
+    </Typography>
+
+    <Box
+      component="pre"
+      sx={{
+        mt: 2,
+        p: 1.5,
+        borderRadius: 1,
+        bgcolor: "background.paper",
+        fontFamily: "monospace",
+        fontSize: "0.75rem",
+        maxHeight: 320,
+        overflow: "auto",
+        whiteSpace: "pre",
+      }}
+    >
+      {voucherPreviewText}
+    </Box>
+  </DialogContent>
+
+  <DialogActions
+    sx={{
+      px: 2.5,
+      py: 1.5,
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: 1,
+    }}
+  >
+    <Typography variant="caption" color="text.secondary">
+      Solo vista previa. Usa estos botones si quieres imprimir ahora.
+    </Typography>
+
+    {voucherPreviewText && (
+      <VoucherPrintButtons voucherText={voucherPreviewText} />
+    )}
+  </DialogActions>
+</Dialog>
+
     </Box>
   );
 }
