@@ -45,13 +45,19 @@ type ItemCarrito = {
   id_producto: number;
   codigo: string;
   nombre: string;
-  precio: number;
+  precio: number;          // precio actual que se usa en el subtotal
+  precioBase: number;      // precio normal (precio_venta)
   cantidad: number;
   exento: boolean;
   esPromo?: boolean;
   promoId?: number;
-  esMayorista?: boolean; 
+  promoTipo?: "SCANNER" | "ARMADA";
+  // mayorista:
+  cantidadMayorista?: number | null;
+  precioMayorista?: number | null;
+  esMayorista?: boolean;
 };
+
 
 type Pago = {
   id: string;
@@ -67,7 +73,10 @@ interface ProductoApi {
   exento_iva: 0 | 1;
   capacidad_ml?: number | null;
   id_categoria?: number | null;
+  cantidad_mayorista?: number | null;   // 👈
+  precio_mayorista?: number | null;     // 👈
 }
+
 
 const formatCLP = (value: number) =>
   new Intl.NumberFormat("es-CL", {
@@ -210,6 +219,24 @@ export default function PosVentaPage() {
     }, 50);
   };
 
+const handleGlobalClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const target = e.target as HTMLElement;
+  const tag = target.tagName.toLowerCase();
+
+  // Si el click fue en un control interactivo, NO forzamos el focus
+  if (
+    tag === "input" ||
+    tag === "textarea" ||
+    tag === "button" ||
+    target.closest("button, [role='button'], [data-no-scanner-focus]")
+  ) {
+    return;
+  }
+
+  codigoInputRef.current?.focus();
+};
+
+
   // ====================
   // API productos
   // ====================
@@ -221,28 +248,51 @@ export default function PosVentaPage() {
     return res.data as ProductoApi;
   };
 
-  // ====================
-  // Carrito
-  // ====================
+// ====================
+// Carrito
+// ====================
 
-   const handleAgregarProductoPorCodigo = async (
-    e: React.FormEvent<HTMLFormElement>
-  ) => {
-    e.preventDefault();
-    setError(null);
-    setSuccess(null);
+const handleAgregarProductoPorCodigo = async (
+  e: React.FormEvent<HTMLFormElement>
+) => {
+  e.preventDefault();
+  setError(null);
+  setSuccess(null);
 
-    const cod = codigo.trim();
-    if (!cod) {
-      refocusScanner();
-      return;
-    }
+  const cod = codigo.trim();
+  if (!cod) {
+    refocusScanner();
+    return;
+  }
 
-    try {
-      const prod = await buscarProductoPorCodigo(cod);
+  try {
+    const prod = await buscarProductoPorCodigo(cod);
 
-      setCarrito((prev) => {
-        const nuevo: ItemCarrito = {
+    setCarrito((prev) => {
+      // Buscar si ya existe en el carrito un producto "normal" con el mismo id
+      const index = prev.findIndex(
+        (item) =>
+          !item.esPromo && // no mezclar con combos
+          item.id_producto === prod.id
+      );
+
+      // Si ya existe → solo sumamos 1 a la cantidad
+      if (index !== -1) {
+        const updated = [...prev];
+        const existente = updated[index];
+
+        updated[index] = {
+          ...existente,
+          cantidad: existente.cantidad + 1,
+        };
+
+        return updated;
+      }
+
+      // Si no existe → agregamos una fila nueva
+      return [
+        ...prev,
+        {
           id: crypto.randomUUID(),
           id_producto: prod.id,
           codigo: prod.codigo_producto,
@@ -250,97 +300,153 @@ export default function PosVentaPage() {
           precio: prod.precio_venta,
           cantidad: 1,
           exento: prod.exento_iva === 1,
-        };
+          esPromo: false,
+          promoId: undefined,
+        } as ItemCarrito,
+      ];
+    });
 
-        const updated = [...prev, nuevo];
-        // 🔹 sincronizamos con backend
-        sincronizarPreciosBackend(updated);
-        return updated;
-      });
+    setCodigo("");
+  } catch (err: any) {
+    console.error(err);
+    setError(
+      err?.response?.data?.error ||
+        "No se pudo encontrar el producto para ese código."
+    );
+  } finally {
+    refocusScanner();
+  }
+};
 
-      setCodigo("");
-    } catch (err: any) {
-      console.error(err);
-      setError(
-        err?.response?.data?.error ||
-          "No se pudo encontrar el producto para ese código."
-      );
-    } finally {
-      refocusScanner();
-    }
-  };
+
 
 
    const handleEliminarItem = (id: string) => {
-    setCarrito((prev) => {
-      const updated = prev.filter((it) => it.id !== id);
-      sincronizarPreciosBackend(updated);
-      return updated;
-    });
-    refocusScanner();
-  };
+  setCarrito((prev) => {
+    const item = prev.find((it) => it.id === id);
+    if (!item) return prev;
+
+    // Si es parte de un combo → eliminamos todo el combo
+    if (item.esPromo && item.promoId != null) {
+      return prev.filter((it) => it.promoId !== item.promoId);
+    }
+
+    // Producto normal → elimina solo esa fila
+    return prev.filter((it) => it.id !== id);
+  });
+
+  refocusScanner();
+};
 
 
-    const cambiarCantidad = (id: string, delta: number) => {
-    setCarrito((prev) => {
-      const updated = prev.map((item) => {
-        if (item.id !== id) return item;
-        const nueva = item.cantidad + delta;
-        return { ...item, cantidad: nueva <= 0 ? 1 : nueva };
-      });
 
-      sincronizarPreciosBackend(updated);
-      return updated;
-    });
-    refocusScanner();
-  };
+ const cambiarCantidad = (id: string, delta: number) => {
+  setCarrito((prev) =>
+    prev.map((item) => {
+      if (item.id !== id) return item;
+
+      let nuevaCant = item.cantidad + delta;
+      if (nuevaCant <= 0) nuevaCant = 1;
+
+      let nuevoPrecio = item.precioBase; // por defecto, precio normal
+      let esMayorista = false;
+
+      if (
+        item.cantidadMayorista != null &&
+        item.cantidadMayorista > 0 &&
+        item.precioMayorista != null &&
+        item.precioMayorista > 0 &&
+        nuevaCant >= item.cantidadMayorista
+      ) {
+        nuevoPrecio = item.precioMayorista;
+        esMayorista = true;
+      }
+
+      return {
+        ...item,
+        cantidad: nuevaCant,
+        precio: nuevoPrecio,
+        esMayorista,
+      };
+    })
+  );
+
+  refocusScanner();
+};
+
+
 
 
     const handlePromoAddToCart = (promoItems: PromoCartItem[]) => {
-    setCarrito((prev) => {
-      const mapped = promoItems.map((p) => ({
-        id: crypto.randomUUID(),
-        id_producto: p.id,
-        codigo: p.codigo_producto,
-        nombre: p.nombre_producto,
-        precio: p.precio_venta,
-        cantidad: p.cantidad,
-        exento: p.exento_iva === 1,
-        esPromo: !!p.es_promo,
-        promoId: p.promoId,
-      }));
+  setCarrito((prev) => {
+    const mapped: ItemCarrito[] = promoItems.map((p) => ({
+      id: crypto.randomUUID(),
+      id_producto: p.id,
+      codigo: p.codigo_producto,
+      nombre: p.nombre_producto,
+      precio: p.precio_venta,
+      precioBase: p.precio_venta,
+      cantidad: p.cantidad,
+      exento: p.exento_iva === 1,
+      esPromo: !!p.es_promo,
+      promoId: p.promoId,
+      promoTipo: "SCANNER",   // combo escáner
+      cantidadMayorista: null,
+      precioMayorista: null,
+      esMayorista: false,
+    }));
 
-      const updated = [...prev, ...mapped];
-      sincronizarPreciosBackend(updated);
-      return updated;
+    return [...prev, ...mapped];
+  });
+
+  refocusScanner();
+};
+
+
+   const handleAgregarPromoArmadaAlCarrito = (promo: PromoArmada) => {
+  const promoId = promo.id;
+  const precioPromo = Number(promo.precio_promocion) || 0;
+
+  const itemsToAdd: ItemCarrito[] = [];
+  let precioAsignado = false;
+
+  for (const it of promo.items) {
+    let precio = it.precio_venta;
+
+    // Todos los productos que participan en la promo armada:
+    //  - el primero NO gratis lleva el precio_promocion completo
+    //  - los demás van a $0
+    if (!it.es_gratis) {
+      if (!precioAsignado && precioPromo > 0) {
+        precio = precioPromo;
+        precioAsignado = true;
+      } else {
+        precio = 0;
+      }
+    } else {
+      // si en BD está marcado como gratis, siempre $0
+      precio = 0;
+    }
+
+    itemsToAdd.push({
+      id: crypto.randomUUID(),
+      id_producto: it.id_producto,
+      codigo: it.codigo_producto,
+      nombre: it.nombre_producto,
+      precio,
+      cantidad: it.cantidad,
+      exento: it.exento_iva === 1,
+      esPromo: true,
+      promoId,
+      promoTipo: "ARMADA",      // 👈 diferenciamos promo armada
     });
-    refocusScanner();
-  };
+  }
 
-    const handleAgregarPromoArmadaAlCarrito = (promo: PromoArmada) => {
-    const promoId = promo.id;
+  setCarrito((prev) => [...prev, ...itemsToAdd]);
+  setPromoArmadaOpen(false);
+  refocusScanner();
+};
 
-    setCarrito((prev) => [
-      ...prev,
-      ...promo.items.map((it) => ({
-        id: crypto.randomUUID(),
-        id_producto: it.id_producto,
-        codigo: it.codigo_producto,
-        nombre: it.nombre_producto,
-        // 🔹 POR AHORA usamos el precio normal del producto.
-        // Más adelante podemos aplicar el precio_promocion repartido
-        // y hacer que el backend lo respete.
-        precio: it.precio_venta,
-        cantidad: it.cantidad,
-        exento: it.exento_iva === 1,
-        esPromo: true,
-        promoId,
-      })),
-    ]);
-
-    setPromoArmadaOpen(false);
-    refocusScanner();
-  };
 
 
 
@@ -708,7 +814,8 @@ export default function PosVentaPage() {
   // ====================
 
   return (
-    <Box sx={{ height: "calc(100vh - 50px)" }}>
+    <Box sx={{ height: "calc(100vh - 50px)" }}
+        onClick={handleGlobalClick}>
       <Box
         display="flex"
         flexDirection={{ xs: "column", md: "row" }}
@@ -774,7 +881,7 @@ export default function PosVentaPage() {
                             {item.nombre}
                             {item.esPromo && (
                               <Chip
-                                label="Combo"
+                               label={item.promoTipo === "ARMADA" ? "Combo armado" : "Combo"}
                                 size="small"
                                 color="secondary"
                                 sx={{
