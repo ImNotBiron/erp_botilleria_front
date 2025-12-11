@@ -168,21 +168,22 @@ const HistorialCajaModal: React.FC<Props> = ({ open, onClose }) => {
     }
   };
 
-  const esperadoLocal = (s: CajaSesion | null) =>
-    s
-      ? n(s.total_esperado_local) ||
-        (n(s.inicial_local) +
-          n(s.total_efectivo_giro) +
-          n(s.ingresos_extra) -
-          n(s.egresos) -
-          n(s.total_exento))
-      : 0;
+ const esperadoLocal = (s: CajaSesion | null) =>
+  s
+    ? n(s.total_esperado_local) ||
+      (
+        n(s.inicial_local) +
+        n(s.total_efectivo_giro) +
+        n(s.ingresos_extra) -
+        n(s.egresos)
+      )
+    : 0;
 
-  const esperadoVecina = (s: CajaSesion | null) =>
-    s
-      ? n(s.total_esperado_vecina) ||
-        (n(s.inicial_vecina) + n(s.movimientos_vecina))
-      : 0;
+const esperadoVecina = (s: CajaSesion | null) =>
+  s
+    ? n(s.total_esperado_vecina) || n(s.inicial_vecina)
+    : 0;
+
 
   return (
     <>

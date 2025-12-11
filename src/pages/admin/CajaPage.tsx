@@ -125,9 +125,7 @@ export default function CajaPage() {
 
   // Modal Movimiento
   const [openMov, setOpenMov] = useState(false);
-  const [movTipo, setMovTipo] = useState<"INGRESO" | "EGRESO" | "VECINA">(
-    "INGRESO"
-  );
+  const [movTipo, setMovTipo] = useState<"INGRESO" | "EGRESO">("INGRESO");
   const [movMonto, setMovMonto] = useState("");
   const [movDesc, setMovDesc] = useState("");
 
@@ -330,26 +328,30 @@ export default function CajaPage() {
 
   const n = (v: number | null | undefined): number => v ?? 0;
 
+const totalTicketsTarjeta =
+  n(cajaActiva.tickets_debito) +
+  n(cajaActiva.tickets_credito);
+
+ // Total tarjetas ($) igual que antes (débito + crédito + transferencia)
 const totalTarjetas =
   n(cajaActiva.total_debito) +
   n(cajaActiva.total_credito) +
   n(cajaActiva.total_transferencia);
 
-const totalTicketsTarjeta =
-  n(cajaActiva.tickets_debito) +
-  n(cajaActiva.tickets_credito) +
-  n(cajaActiva.tickets_transferencia);
+// ✅ Efectivo afecto (efectivo - exento)
+const efectivoAfecto =
+  n(cajaActiva.total_efectivo_giro) - n(cajaActiva.total_exento);
 
-// 🔹 SIEMPRE calcular esperado local en front
+// 🔹 Esperado LOCAL (regla nueva, sin exento, sin caja vecina)
 const esperadoLocalCalc =
   n(cajaActiva.inicial_local) +
   n(cajaActiva.total_efectivo_giro) +
   n(cajaActiva.ingresos_extra) -
   n(cajaActiva.egresos);
 
-// 🔹 SIEMPRE calcular esperado vecina en front
-const esperadoVecinaCalc =
-  n(cajaActiva.inicial_vecina) + n(cajaActiva.movimientos_vecina);
+// 🔹 Esperado VECINA = solo saldo inicial
+const esperadoVecinaCalc = n(cajaActiva.inicial_vecina);
+
 
   const realLocalNumber = parseCLPToNumber(realLocal);
   const realVecinaNumber = parseCLPToNumber(realVecina);
@@ -559,12 +561,8 @@ const esperadoVecinaCalc =
                 </Stack>
                 <Stack spacing={0.5}>
                   <Typography variant="body2">
-                    <strong>Cupo inicial:</strong>{" "}
+                    <strong>Cupo inicial / saldo inicial:</strong>{" "}
                     {formatCLP(cajaActiva.inicial_vecina)}
-                  </Typography>
-                  <Typography variant="body2">
-                    <strong>Movimientos netos:</strong>{" "}
-                    {formatCLP(cajaActiva.movimientos_vecina)}
                   </Typography>
 
                   <Divider sx={{ my: 1.5 }} />
@@ -582,13 +580,19 @@ const esperadoVecinaCalc =
                       </Typography>
                       <Typography variant="body2">
                         <strong>Diferencia:</strong>{" "}
-                        {cajaActiva.diferencia_vecina === 0
-                          ? `${formatCLP(0)} (cuadrado)`
-                          : formatCLP(cajaActiva.diferencia_vecina)}
+                        {formatCLP(cajaActiva.diferencia_vecina)}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {cajaActiva.diferencia_vecina > 0
+                          ? "Caja Vecina le debe a la Caja Local."
+                          : cajaActiva.diferencia_vecina < 0
+                          ? "La Caja Local le debe a Caja Vecina."
+                          : "Saldo de Caja Vecina cuadrado."}
                       </Typography>
                     </>
                   )}
                 </Stack>
+
               </Box>
             </Stack>
           </CardContent>
@@ -717,11 +721,11 @@ const esperadoVecinaCalc =
               justifyContent="space-between"
               spacing={1}
             >
-              <Typography variant="body2">
-                <strong>Total tarjetas:</strong> {formatCLP(totalTarjetas)}
+             <Typography variant="body2">
+                <strong>Total tarjetas (monto):</strong> {formatCLP(totalTarjetas)}
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Tickets con tarjeta: {totalTicketsTarjeta}
+                Total tickets tarjeta (débito + crédito): {totalTicketsTarjeta}
               </Typography>
             </Stack>
           </CardContent>
@@ -801,13 +805,12 @@ const esperadoVecinaCalc =
               label="Tipo de movimiento"
               value={movTipo}
               onChange={(e) =>
-                setMovTipo(e.target.value as "INGRESO" | "EGRESO" | "VECINA")
+                setMovTipo(e.target.value as "INGRESO" | "EGRESO")
               }
               fullWidth
             >
               <MenuItem value="INGRESO">Ingreso</MenuItem>
               <MenuItem value="EGRESO">Egreso</MenuItem>
-              <MenuItem value="VECINA">Caja Vecina</MenuItem>
             </TextField>
 
             <TextField
@@ -867,17 +870,21 @@ const esperadoVecinaCalc =
                     Esperado: {formatCLP(esperadoLocalCalc)}
                   </Typography>
                   <Typography variant="body2">
-                    Efectivo + giro:{" "}
+                    Ingresos extra: {formatCLP(cajaActiva.ingresos_extra)}
+                  </Typography>
+                  <Typography variant="body2">
+                    Egresos: {formatCLP(cajaActiva.egresos)}
+                  </Typography>
+                  <Typography variant="body2">
+                    Efectivo:{" "}
                     {formatCLP(cajaActiva.total_efectivo_giro)}
                   </Typography>
                   <Typography variant="body2">
                     Exentos: {formatCLP(cajaActiva.total_exento)}
                   </Typography>
                   <Typography variant="body2">
-                    Ingresos extra: {formatCLP(cajaActiva.ingresos_extra)}
-                  </Typography>
-                  <Typography variant="body2">
-                    Egresos: {formatCLP(cajaActiva.egresos)}
+                    <strong>Efectivo afecto:</strong>{" "}
+                    {formatCLP(efectivoAfecto)}
                   </Typography>
                 </Box>
 
@@ -885,16 +892,16 @@ const esperadoVecinaCalc =
                   <Typography variant="body2" fontWeight={600}>
                     Caja vecina
                   </Typography>
-                  <Typography variant="body2">
+                  {/* <Typography variant="body2">
                     Esperado: {formatCLP(esperadoVecinaCalc)}
-                  </Typography>
+                  </Typography> */}
                   <Typography variant="body2">
                     Cupo inicial: {formatCLP(cajaActiva.inicial_vecina)}
                   </Typography>
-                  <Typography variant="body2">
+                  {/* <Typography variant="body2">
                     Movimientos netos:{" "}
                     {formatCLP(cajaActiva.movimientos_vecina)}
-                  </Typography>
+                  </Typography> */}
                 </Box>
 
                 <Box flex={1}>
@@ -912,6 +919,9 @@ const esperadoVecinaCalc =
                   <Typography variant="body2">
                     Transferencia: {formatCLP(cajaActiva.total_transferencia)}{" "}
                     ({cajaActiva.tickets_transferencia || 0} tickets)
+                  </Typography>
+                  <Typography variant="body2">
+                    Total tickets tarjeta: {totalTicketsTarjeta}
                   </Typography>
                 </Box>
               </Stack>
