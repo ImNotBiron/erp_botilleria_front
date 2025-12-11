@@ -21,7 +21,6 @@ import {
   Chip,
   Divider,
   Alert,
-  CircularProgress,
 } from "@mui/material";
 
 import PaymentsIcon from "@mui/icons-material/Payments";
@@ -33,12 +32,9 @@ import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import PointOfSaleIcon from "@mui/icons-material/PointOfSale";
-import HistoryIcon from "@mui/icons-material/History";
-
 
 import { api } from "../../api/api";
 import HistorialCajaModal from "../../components/caja/HistorialCajaModal";
-
 
 interface CajaSesion {
   id: number;
@@ -136,14 +132,35 @@ export default function CajaPage() {
 
   // Modal Historial Sesiones Cajas 
   const [openHistorial, setOpenHistorial] = useState(false);
-  // const [historial, setHistorial] = useState<CajaSesion[]>([]);
-  // const [loadingHistorial, setLoadingHistorial] = useState(false);
-  // const [errorHistorial, setErrorHistorial] = useState<string | null>(null);
-  // const [detalleOpen, setDetalleOpen] = useState(false);
-  // const [detalleSesion, setDetalleSesion] = useState<CajaSesion | null>(null);
-  // const [detalleMovimientos, setDetalleMovimientos] = useState<MovimientoCaja[]>([]);
-  // const [detalleLoading, setDetalleLoading] = useState(false);
-  // const [detalleError, setDetalleError] = useState<string | null>(null);
+
+  // ===== VENTA INTERNA =====
+  type ItemVentaInterna = {
+    id_producto: number;
+    nombre_producto: string;
+    precio_unitario: number;
+    cantidad: number;
+    exento_iva: 0 | 1;
+  };
+
+  const [openVentaInterna, setOpenVentaInterna] = useState(false);
+  const [itemsVentaInterna, setItemsVentaInterna] = useState<ItemVentaInterna[]>([]);
+  const [codigoInterno, setCodigoInterno] = useState("");
+  const [cantInterna, setCantInterna] = useState("1");
+  const [notaInterna, setNotaInterna] = useState("");
+  const [loadingVentaInterna, setLoadingVentaInterna] = useState(false);
+  const [errorVentaInterna, setErrorVentaInterna] = useState<string | null>(null);
+
+   const totalSugeridoInterna = itemsVentaInterna.reduce(
+    (acc, it) => acc + it.precio_unitario * it.cantidad,
+    0
+  );
+
+    const [metodoPagoInterna, setMetodoPagoInterna] = useState<
+    "EFECTIVO" | "GIRO" | "DEBITO" | "CREDITO" | "TRANSFERENCIA"
+  >("EFECTIVO");
+
+  const [totalFinalInterna, setTotalFinalInterna] = useState("");
+
 
   const cargarEstado = async () => {
     setLoading(true);
@@ -219,6 +236,143 @@ export default function CajaPage() {
     alert(err.response?.data?.error || "Error cerrando caja.");
   }
 };
+
+  const handleAgregarItemInterna = async () => {
+  const codigo = codigoInterno.trim();
+  const cantidad = Number(cantInterna) || 1;
+
+  if (!codigo) return;
+  if (cantidad <= 0) {
+    setErrorVentaInterna("La cantidad debe ser mayor a cero.");
+    return;
+  }
+
+  try {
+    setErrorVentaInterna(null);
+
+    // Normalizamos el código (ej: "lic001" -> "LIC001")
+    const codigoLimpio = codigo.toUpperCase();
+
+    // Usamos la ruta que YA tienes en el backend:
+    // GET /productos/codigo/:codigo
+    const res = await api.get(
+      `/productos/codigo/${encodeURIComponent(codigoLimpio)}`
+    );
+
+    const prod = res.data?.producto ?? res.data;
+    if (!prod) {
+      setErrorVentaInterna("Producto no encontrado.");
+      return;
+    }
+
+    setItemsVentaInterna((prev) => {
+      const idx = prev.findIndex((p) => p.id_producto === prod.id);
+      if (idx >= 0) {
+        const copia = [...prev];
+        copia[idx] = {
+          ...copia[idx],
+          cantidad: copia[idx].cantidad + cantidad,
+        };
+        return copia;
+      }
+
+      return [
+        ...prev,
+        {
+          id_producto: prod.id,
+          nombre_producto: prod.nombre_producto,
+          precio_unitario: prod.precio_venta,
+          cantidad,
+          exento_iva: prod.exento_iva,
+        },
+      ];
+    });
+
+    setCodigoInterno("");
+    setCantInterna("1");
+  } catch (err: any) {
+    console.error(err);
+    setErrorVentaInterna(
+      err?.response?.data?.error || "Error al buscar el producto."
+    );
+  }
+};
+
+
+  const handleEliminarItemInterna = (id_producto: number) => {
+    setItemsVentaInterna((prev) =>
+      prev.filter((it) => it.id_producto !== id_producto)
+    );
+  };
+
+    const handleCerrarVentaInterna = () => {
+    if (loadingVentaInterna) return;
+    setOpenVentaInterna(false);
+    setItemsVentaInterna([]);
+    setCodigoInterno("");
+    setCantInterna("1");
+    setNotaInterna("");
+    setTotalFinalInterna("");         // 👈 nuevo
+    setMetodoPagoInterna("EFECTIVO"); // 👈 nuevo
+    setErrorVentaInterna(null);
+  };
+
+
+    const handleConfirmarVentaInterna = async () => {
+    if (itemsVentaInterna.length === 0) {
+      setErrorVentaInterna("Agrega al menos un producto a la venta interna.");
+      return;
+    }
+
+    if (!totalFinalInterna.trim()) {
+      setErrorVentaInterna("Debes ingresar el total final de la venta interna.");
+      return;
+    }
+
+    const total = parseCLPToNumber(totalFinalInterna);
+    if (total <= 0) {
+      setErrorVentaInterna("El total final debe ser mayor a cero.");
+      return;
+    }
+
+    const itemsPayload = itemsVentaInterna.map((it) => ({
+      id_producto: it.id_producto,
+      cantidad: it.cantidad,
+    }));
+
+    const pagosPayload = [
+      {
+        tipo: metodoPagoInterna,
+        monto: total,
+      },
+    ];
+
+    try {
+      setLoadingVentaInterna(true);
+      setErrorVentaInterna(null);
+
+      await api.post("/ventas/crear", {
+        items: itemsPayload,
+        pagos: pagosPayload,
+        tipo_venta: "INTERNA",
+        nota_interna: notaInterna || null,
+        monto_total_interno: total, // 👈 clave: total final definido por admin
+      });
+
+      await cargarEstado();
+      handleCerrarVentaInterna();
+    } catch (err: any) {
+      console.error(err);
+      setErrorVentaInterna(
+        err?.response?.data?.error ||
+          "Ocurrió un error al registrar la venta interna."
+      );
+    } finally {
+      setLoadingVentaInterna(false);
+    }
+  };
+
+
 
 
   /* ===== RENDER ===== */
@@ -440,6 +594,14 @@ const esperadoVecinaCalc = n(cajaActiva.inicial_vecina);
           Registrar movimiento
         </Button>
         <Button
+            fullWidth
+            variant="outlined"
+            onClick={() => setOpenVentaInterna(true)}
+          >
+            Venta interna
+          </Button>
+
+        <Button
           fullWidth
           variant="contained"
           color="error"
@@ -583,9 +745,9 @@ const esperadoVecinaCalc = n(cajaActiva.inicial_vecina);
                         {formatCLP(cajaActiva.diferencia_vecina)}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {cajaActiva.diferencia_vecina > 0
+                        {cajaActiva.diferencia_vecina! > 0
                           ? "Caja Vecina le debe a la Caja Local."
-                          : cajaActiva.diferencia_vecina < 0
+                          : cajaActiva.diferencia_vecina! < 0
                           ? "La Caja Local le debe a Caja Vecina."
                           : "Saldo de Caja Vecina cuadrado."}
                       </Typography>
@@ -1001,10 +1163,202 @@ const esperadoVecinaCalc = n(cajaActiva.inicial_vecina);
         </DialogActions>
       </Dialog>
 
+      {/* MODAL VENTA INTERNA */}
+          {/* MODAL VENTA INTERNA */}
+      <Dialog
+        open={openVentaInterna}
+        onClose={handleCerrarVentaInterna}
+        fullWidth
+        maxWidth="md"
+      >
+        <DialogTitle>Venta interna</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            {errorVentaInterna && (
+              <Alert severity="error">{errorVentaInterna}</Alert>
+            )}
+
+            {/* Buscar / agregar producto */}
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={2}
+              alignItems="center"
+            >
+              <TextField
+                label="Código de barras / producto"
+                value={codigoInterno}
+                onChange={(e) => setCodigoInterno(e.target.value)}
+                fullWidth
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleAgregarItemInterna();
+                  }
+                }}
+              />
+              <TextField
+                label="Cantidad"
+                value={cantInterna}
+                onChange={(e) => setCantInterna(e.target.value)}
+                sx={{ width: 120 }}
+                inputProps={{ inputMode: "numeric" }}
+              />
+              <Button
+                variant="contained"
+                onClick={handleAgregarItemInterna}
+                disabled={loadingVentaInterna}
+              >
+                Agregar
+              </Button>
+            </Stack>
+
+            {/* Tabla de productos */}
+            {itemsVentaInterna.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                Aún no has agregado productos a la venta interna.
+              </Typography>
+            ) : (
+              <Box sx={{ maxHeight: 260, overflowY: "auto" }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Producto</TableCell>
+                      <TableCell align="right">Cantidad</TableCell>
+                      <TableCell align="right">Precio unit.</TableCell>
+                      <TableCell align="right">Subtotal</TableCell>
+                      <TableCell align="center">Exento</TableCell>
+                      <TableCell align="right">Acciones</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {itemsVentaInterna.map((it) => (
+                      <TableRow key={it.id_producto}>
+                        <TableCell>{it.nombre_producto}</TableCell>
+                        <TableCell align="right">{it.cantidad}</TableCell>
+                        <TableCell align="right">
+                          {formatCLP(it.precio_unitario)}
+                        </TableCell>
+                        <TableCell align="right">
+                          {formatCLP(it.precio_unitario * it.cantidad)}
+                        </TableCell>
+                        <TableCell align="center">
+                          {it.exento_iva === 1 ? "Sí" : "No"}
+                        </TableCell>
+                        <TableCell align="right">
+                          <Button
+                            size="small"
+                            color="error"
+                            onClick={() =>
+                              handleEliminarItemInterna(it.id_producto)
+                            }
+                          >
+                            Quitar
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
+            )}
+
+            {/* Nota interna */}
+            <TextField
+              label="Nota interna (opcional)"
+              value={notaInterna}
+              onChange={(e) => setNotaInterna(e.target.value)}
+              multiline
+              minRows={2}
+              fullWidth
+            />
+
+            {/* Total sugerido */}
+            <Box
+              sx={{
+                p: 2,
+                borderRadius: 1,
+                border: "1px dashed",
+                borderColor: "divider",
+              }}
+            >
+              <Typography variant="caption" color="text.secondary">
+                Total sugerido (suma de productos)
+              </Typography>
+              <Typography variant="h6" fontWeight={700}>
+                {formatCLP(totalSugeridoInterna)}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Este es el valor real según los precios del sistema. El total
+                final lo defines tú abajo.
+              </Typography>
+            </Box>
+
+            {/* Total final + método de pago */}
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={2}
+              alignItems="flex-start"
+            >
+              <TextField
+                label="Total final a registrar"
+                value={totalFinalInterna}
+                onChange={(e) =>
+                  setTotalFinalInterna(formatInputCLP(e.target.value))
+                }
+                fullWidth
+                inputProps={{ inputMode: "numeric" }}
+                helperText="Monto que se registrará como total de la venta interna."
+              />
+
+              <TextField
+                select
+                label="Método de pago"
+                value={metodoPagoInterna}
+                onChange={(e) =>
+                  setMetodoPagoInterna(
+                    e.target.value as
+                      | "EFECTIVO"
+                      | "GIRO"
+                      | "DEBITO"
+                      | "CREDITO"
+                      | "TRANSFERENCIA"
+                  )
+                }
+                sx={{ minWidth: 220 }}
+              >
+                <MenuItem value="EFECTIVO">Efectivo</MenuItem>
+                <MenuItem value="GIRO">Caja Vecina / Giro</MenuItem>
+                <MenuItem value="DEBITO">Débito</MenuItem>
+                <MenuItem value="CREDITO">Crédito</MenuItem>
+                <MenuItem value="TRANSFERENCIA">Transferencia</MenuItem>
+              </TextField>
+            </Stack>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={handleCerrarVentaInterna}
+            disabled={loadingVentaInterna}
+          >
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleConfirmarVentaInterna}
+            disabled={loadingVentaInterna || itemsVentaInterna.length === 0}
+          >
+            {loadingVentaInterna ? "Guardando..." : "Confirmar venta interna"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+
       <HistorialCajaModal
-  open={openHistorial}
-  onClose={() => setOpenHistorial(false)}
-/>
+        open={openHistorial}
+        onClose={() => setOpenHistorial(false)}
+      />
+
 
     </Box>
   );
