@@ -36,6 +36,7 @@ import PointOfSaleIcon from "@mui/icons-material/PointOfSale";
 import { api } from "../../api/api";
 import HistorialCajaModal from "../../components/caja/HistorialCajaModal";
 import DevolucionVentaModal from "../../components/caja/DevolucionVentaModal";
+import CambioVentaModal from "../../components/caja/CambioVentaModal";
 
 interface CajaSesion {
   id: number;
@@ -163,6 +164,8 @@ export default function CajaPage() {
   >("EFECTIVO");
 
   const [totalFinalInterna, setTotalFinalInterna] = useState("");
+  const [openCambio, setOpenCambio] = useState(false);
+
 
 
   const cargarEstado = async () => {
@@ -596,6 +599,14 @@ const esperadoVecinaCalc = n(cajaActiva.inicial_vecina);
         >
           Registrar movimiento
         </Button>
+        <Button
+          fullWidth
+          variant="outlined"
+          onClick={() => setOpenCambio(true)}
+        >
+          Registrar cambio
+        </Button>
+
         <Button
           fullWidth
           variant="outlined"
@@ -1375,6 +1386,14 @@ const esperadoVecinaCalc = n(cajaActiva.inicial_vecina);
       <HistorialCajaModal
         open={openHistorial}
         onClose={() => setOpenHistorial(false)}
+      />
+
+      <CambioVentaModal
+        open={openCambio}
+        onClose={() => setOpenCambio(false)}
+        onSuccess={async () => {
+          await cargarEstado(); // refresca caja / movimientos
+        }}
       />
 
 

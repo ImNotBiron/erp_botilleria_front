@@ -16,14 +16,14 @@ import {
   TableCell,
   TableBody,
   MenuItem,
+  Box,
 } from "@mui/material";
-
 import { api } from "../../api/api";
 
 interface DevolucionVentaModalProps {
   open: boolean;
   onClose: () => void;
-  onSuccess?: () => void; // se llama cuando la devolución se registra OK
+  onSuccess?: () => Promise<void> | void;
 }
 
 interface VentaDetalleCabecera {
@@ -34,13 +34,19 @@ interface VentaDetalleCabecera {
 interface VentaDetalleItem {
   id_producto: number;
   nombre_producto: string;
-  cantidad: number;
+  cantidad: number; // vendida
   precio_unitario: number;
+  cantidad_devuelta?: number; // ya devuelta
+  cantidad_disponible?: number; // vendida - devuelta
 }
 
 interface VentaDetalleResponse {
   cabecera: VentaDetalleCabecera;
   items: VentaDetalleItem[];
+  devolucion?: {
+    total_devuelto: number;
+    completa: boolean;
+  };
 }
 
 const formatCLP = (value: number | null | undefined) =>
@@ -59,9 +65,9 @@ export default function DevolucionVentaModal({
   const [ventaDetalle, setVentaDetalle] = useState<VentaDetalleResponse | null>(
     null
   );
-  const [cantidadesDev, setCantidadesDev] = useState<
-    Record<number, number>
-  >({});
+  const [cantidadesDev, setCantidadesDev] = useState<Record<number, number>>(
+    {}
+  );
   const [metodoDev, setMetodoDev] = useState<
     "EFECTIVO" | "GIRO" | "DEBITO" | "CREDITO" | "TRANSFERENCIA"
   >("EFECTIVO");
@@ -69,15 +75,19 @@ export default function DevolucionVentaModal({
   const [errorDev, setErrorDev] = useState<string | null>(null);
   const [loadingDev, setLoadingDev] = useState(false);
 
-  const handleClose = () => {
-    if (loadingDev) return;
-    // limpiar estados al cerrar
+  const resetState = () => {
     setVentaBusqueda("");
     setVentaDetalle(null);
     setCantidadesDev({});
     setMetodoDev("EFECTIVO");
     setMotivoDev("");
     setErrorDev(null);
+    setLoadingDev(false);
+  };
+
+  const handleClose = () => {
+    if (loadingDev) return;
+    resetState();
     onClose();
   };
 
@@ -93,6 +103,16 @@ export default function DevolucionVentaModal({
 
       const res = await api.get(`/ventas/${ventaBusqueda}/detalle`);
       const data = res.data as VentaDetalleResponse;
+
+      // ✅ Bloquear si ya está completamente devuelta
+      if (data?.devolucion?.completa) {
+        setVentaDetalle(null);
+        setCantidadesDev({});
+        setErrorDev(
+          "Esta venta ya tiene devolución completa. No se puede devolver nuevamente."
+        );
+        return;
+      }
 
       setVentaDetalle(data);
       setCantidadesDev({});
@@ -114,6 +134,17 @@ export default function DevolucionVentaModal({
     }, 0);
   };
 
+  const handleDevolverTodoDisponible = () => {
+    if (!ventaDetalle) return;
+
+    const next: Record<number, number> = {};
+    for (const it of ventaDetalle.items) {
+      const disponible = it.cantidad_disponible ?? it.cantidad;
+      if (disponible > 0) next[it.id_producto] = disponible;
+    }
+    setCantidadesDev(next);
+  };
+
   const confirmarDevolucion = async () => {
     if (!ventaDetalle) return;
 
@@ -125,7 +156,9 @@ export default function DevolucionVentaModal({
       }));
 
     if (itemsADevolver.length === 0) {
-      setErrorDev("Debes seleccionar al menos un producto con cantidad mayor a 0.");
+      setErrorDev(
+        "Debes seleccionar al menos un producto con cantidad mayor a 0."
+      );
       return;
     }
 
@@ -155,6 +188,8 @@ export default function DevolucionVentaModal({
     }
   };
 
+  const hasDevPrev = (ventaDetalle?.devolucion?.total_devuelto ?? 0) > 0;
+
   return (
     <Dialog open={open} onClose={handleClose} fullWidth maxWidth="md">
       <DialogTitle>Devolución de venta</DialogTitle>
@@ -174,6 +209,12 @@ export default function DevolucionVentaModal({
               value={ventaBusqueda}
               onChange={(e) => setVentaBusqueda(e.target.value)}
               fullWidth
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  buscarVentaParaDevolucion();
+                }
+              }}
             />
             <Button
               variant="contained"
@@ -184,25 +225,51 @@ export default function DevolucionVentaModal({
             </Button>
           </Stack>
 
-          {/* DETALLE DE VENTA */}
+          {/* DETALLE */}
           {ventaDetalle && (
             <>
-              <Typography variant="subtitle1" fontWeight={600}>
-                Venta N° {ventaDetalle.cabecera.id}
-              </Typography>
+              <Box>
+                <Typography variant="subtitle1" fontWeight={700}>
+                  Venta N° {ventaDetalle.cabecera.id}
+                </Typography>
 
-              <Typography variant="body2" color="text.secondary">
-                Fecha:{" "}
-                {new Date(
-                  ventaDetalle.cabecera.fecha
-                ).toLocaleString("es-CL")}
-              </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Fecha:{" "}
+                  {new Date(ventaDetalle.cabecera.fecha).toLocaleString("es-CL")}
+                </Typography>
+              </Box>
 
-              <Table size="small" sx={{ mt: 2 }}>
+              {hasDevPrev && (
+                <Alert severity="info">
+                  Esta venta ya tiene devoluciones previas por{" "}
+                  {formatCLP(ventaDetalle.devolucion?.total_devuelto || 0)}. Revisa
+                  “Devuelto” y “Disponible” antes de confirmar.
+                </Alert>
+              )}
+
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                <Button
+                  variant="outlined"
+                  onClick={handleDevolverTodoDisponible}
+                  disabled={loadingDev}
+                >
+                  Devolver todo disponible
+                </Button>
+
+                <Box flex={1} />
+
+                <Typography variant="subtitle1" fontWeight={700}>
+                  Total devolución: {formatCLP(totalDevueltoPreview())}
+                </Typography>
+              </Stack>
+
+              <Table size="small" sx={{ mt: 1 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell>Producto</TableCell>
                     <TableCell align="right">Vendidos</TableCell>
+                    <TableCell align="right">Devuelto</TableCell>
+                    <TableCell align="right">Disponible</TableCell>
                     <TableCell align="right">Devolver</TableCell>
                     <TableCell align="right">Precio</TableCell>
                     <TableCell align="right">Subtotal dev.</TableCell>
@@ -210,26 +277,44 @@ export default function DevolucionVentaModal({
                 </TableHead>
                 <TableBody>
                   {ventaDetalle.items.map((it) => {
+                    const devuelto = it.cantidad_devuelta ?? 0;
+                    const disponible = it.cantidad_disponible ?? it.cantidad;
+
                     const cant = cantidadesDev[it.id_producto] || 0;
+                    const maxDev = disponible;
+                    const disabled = maxDev <= 0;
+
+                    const rowHasPrev = devuelto > 0;
+                    const rowBg = rowHasPrev ? "rgba(255, 193, 7, 0.10)" : "inherit";
+
                     return (
-                      <TableRow key={it.id_producto}>
-                        <TableCell>{it.nombre_producto}</TableCell>
+                      <TableRow key={it.id_producto} hover sx={{ backgroundColor: rowBg }}>
+                        <TableCell>
+                          <Typography variant="body2" fontWeight={600}>
+                            {it.nombre_producto}
+                          </Typography>
+                          {disabled && (
+                            <Typography variant="caption" color="text.secondary">
+                              Sin disponible para devolver
+                            </Typography>
+                          )}
+                        </TableCell>
 
                         <TableCell align="right">{it.cantidad}</TableCell>
+                        <TableCell align="right">{devuelto}</TableCell>
+                        <TableCell align="right">{disponible}</TableCell>
 
                         <TableCell align="right">
                           <TextField
                             type="number"
-                            inputProps={{ min: 0, max: it.cantidad }}
+                            disabled={disabled}
+                            inputProps={{ min: 0, max: maxDev }}
                             value={cant}
-                            sx={{ width: 80 }}
+                            sx={{ width: 90 }}
                             onChange={(e) => {
                               const raw = Number(e.target.value);
                               const limpio = isNaN(raw) ? 0 : raw;
-                              const ajustado = Math.max(
-                                0,
-                                Math.min(limpio, it.cantidad)
-                              );
+                              const ajustado = Math.max(0, Math.min(limpio, maxDev));
                               setCantidadesDev((prev) => ({
                                 ...prev,
                                 [it.id_producto]: ajustado,
@@ -251,12 +336,8 @@ export default function DevolucionVentaModal({
                 </TableBody>
               </Table>
 
-              {/* METODO + MOTIVO + TOTAL */}
+              {/* MÉTODO + MOTIVO */}
               <Stack spacing={2} mt={2}>
-                <Typography variant="subtitle1" fontWeight={600}>
-                  Total devolución: {formatCLP(totalDevueltoPreview())}
-                </Typography>
-
                 <TextField
                   select
                   label="Método de devolución"
