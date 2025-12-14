@@ -35,6 +35,7 @@ import PointOfSaleIcon from "@mui/icons-material/PointOfSale";
 
 import { api } from "../../api/api";
 import HistorialCajaModal from "../../components/caja/HistorialCajaModal";
+import DevolucionVentaModal from "../../components/caja/DevolucionVentaModal";
 
 interface CajaSesion {
   id: number;
@@ -132,6 +133,8 @@ export default function CajaPage() {
 
   // Modal Historial Sesiones Cajas 
   const [openHistorial, setOpenHistorial] = useState(false);
+  // Modal Devolución
+  const [openDevolucion, setOpenDevolucion] = useState(false);
 
   // ===== VENTA INTERNA =====
   type ItemVentaInterna = {
@@ -592,6 +595,13 @@ const esperadoVecinaCalc = n(cajaActiva.inicial_vecina);
           onClick={() => setOpenMov(true)}
         >
           Registrar movimiento
+        </Button>
+        <Button
+          fullWidth
+          variant="outlined"
+          onClick={() => setOpenDevolucion(true)}
+        >
+          Registrar devolución
         </Button>
         <Button
             fullWidth
@@ -1353,6 +1363,14 @@ const esperadoVecinaCalc = n(cajaActiva.inicial_vecina);
         </DialogActions>
       </Dialog>
 
+      <DevolucionVentaModal
+        open={openDevolucion}
+        onClose={() => setOpenDevolucion(false)}
+        onSuccess={async () => {
+          // refrescamos la caja después de una devolución exitosa
+          await cargarEstado();
+        }}
+      />
 
       <HistorialCajaModal
         open={openHistorial}

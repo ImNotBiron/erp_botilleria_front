@@ -34,12 +34,12 @@ import { api } from "../../api/api";
 
 import CalculateIcon from "@mui/icons-material/Calculate";
 import { CalculadoraModalPOS } from "../../components/pos/CalculadoraModalPOS";
-import { PromoScannerModalPOS } from "../../components/pos/PromoScannerModalPos";
-import type { PromoCartItem } from "../../components/pos/PromoScannerModalPos";
+import { PromoScannerModalPOS, type PromoCartItem } from "../../components/pos/PromoScannerModalPos";
 import { PromoArmadaModalPOS , type PromoArmada } from "../../components/pos/PromoArmadaModalPOS";
 import { buildVoucherText, type VoucherData } from "../../utils/voucherText";
 import { VoucherPrintButtons } from "../../components/voucher/VoucherPrintButtons";
 import { QuantityModalPOS } from "../../components/pos/QuantityModalPOS";
+
 
 type MedioPago = "EFECTIVO" | "GIRO" | "DEBITO" | "CREDITO" | "TRANSFERENCIA";
 
@@ -53,7 +53,6 @@ type ItemCarrito = {
   exento: boolean;
   esPromo?: boolean;
   promoId?: number;
-
   // --- datos para mayorista ---
   precioBase?: number;          // precio_venta normal
   precioMayorista?: number | null;
@@ -1455,7 +1454,7 @@ const handleCloseCantidadModal = () => {
           setCalcOpen(false);
         }}
       />
-      
+
       <QuantityModalPOS
         open={cantidadModalOpen}
         initialValue={itemCantidadTarget?.cantidad ?? 1}
