@@ -1,7 +1,6 @@
 const LINE_WIDTH = 32;
 
 // ---- ESC/POS helpers para RawBT ----
-const ESC = "\x1b";
 const GS = "\x1d";
 const REVERSE_ON = GS + "B" + "\x01";  // reverse-print mode ON
 const REVERSE_OFF = GS + "B" + "\x00"; // reverse-print mode OFF
@@ -45,9 +44,6 @@ const formatCLP = (value: number) =>
 
 const padRight = (txt: string, width: number) =>
   txt.length > width ? txt.slice(0, width) : txt + " ".repeat(width - txt.length);
-
-const padLeft = (txt: string, width: number) =>
-  txt.length > width ? txt.slice(0, width) : " ".repeat(width - txt.length) + txt;
 
 const separator = (char = "-") => char.repeat(LINE_WIDTH);
 

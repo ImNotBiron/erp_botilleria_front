@@ -34,7 +34,7 @@ import { api } from "../../api/api";
 
 import CalculateIcon from "@mui/icons-material/Calculate";
 import { CalculadoraModalPOS } from "../../components/pos/CalculadoraModalPOS";
-import { PromoScannerModalPOS, type PromoCartItem } from "../../components/pos/PromoScannerModalPos";
+import { PromoScannerModalPOS, type PromoCartItem } from "../../components/pos/PromoScannerModalPOS";
 import { PromoArmadaModalPOS , type PromoArmada } from "../../components/pos/PromoArmadaModalPOS";
 import { buildVoucherText, type VoucherData } from "../../utils/voucherText";
 import { VoucherPrintButtons } from "../../components/voucher/VoucherPrintButtons";
@@ -42,6 +42,7 @@ import { QuantityModalPOS } from "../../components/pos/QuantityModalPOS";
 
 
 type MedioPago = "EFECTIVO" | "GIRO" | "DEBITO" | "CREDITO" | "TRANSFERENCIA";
+export type PromoTipo = "ARMADA" | "NORMAL" | "SCANNER";
 
 type ItemCarrito = {
   id: string;
@@ -58,6 +59,7 @@ type ItemCarrito = {
   precioMayorista?: number | null;
   cantidadMayorista?: number | null;
   esMayorista?: boolean;
+  promoTipo?: PromoTipo;
 };
 
 interface ProductoApi {
@@ -74,7 +76,9 @@ interface ProductoApi {
   precio_mayorista?: number | null;
 }
 
-
+type ProductoBase = Omit<ProductoApi, "id_categoria"> & {
+  id_categoria?: number; // ✅ sin null
+};
 
 type Pago = {
   id: string;
@@ -284,17 +288,19 @@ const handleGlobalClick = (e: React.MouseEvent<HTMLDivElement>) => {
   codigoInputRef.current?.focus();
 };
 
-
   // ====================
   // API productos
   // ====================
 
-  const buscarProductoPorCodigo = async (
-    codigo: string
-  ): Promise<ProductoApi> => {
-    const res = await api.get(`/productos/codigo/${codigo}`);
-    return res.data as ProductoApi;
+const buscarProductoPorCodigo = async (codigo: string): Promise<ProductoBase> => {
+  const res = await api.get(`/productos/codigo/${codigo}`);
+  const p = res.data as ProductoApi;
+
+  return {
+    ...p,
+    id_categoria: p.id_categoria ?? undefined, // ✅ null -> undefined
   };
+};
 
 // ====================
 // Carrito
@@ -508,79 +514,6 @@ const handleCloseCantidadModal = () => {
 };
 
 
-
-
-    // ====================
-  // Sincronizar precios con backend (mayorista / exento / combos)
-  // ====================
-
-  const sincronizarPreciosBackend = async (items: ItemCarrito[]) => {
-    // Si el carrito está vacío, no hacemos nada
-    if (!items || items.length === 0) return;
-
-    try {
-      const payloadItems = items.map((it) => ({
-        id_producto: it.id_producto,
-        cantidad: it.cantidad,
-        es_promo: it.esPromo ? 1 : 0,
-        promo_id: it.promoId ?? null,
-        // para que el backend pueda respetar promos gratis (hielo combo)
-        precio_unitario: it.precio,
-      }));
-
-      const res = await api.post("/ventas/previsualizar-pos", {
-        items: payloadItems,
-      });
-
-      const itemsSrv = res.data.items as Array<{
-        id_producto: number;
-        cantidad: number;
-        nombre_producto: string;
-        precio_unitario: number;
-        exento_iva: 0 | 1;
-        es_promo?: 0 | 1;
-        promo_id?: number | null;
-        es_mayorista?: 0 | 1; 
-      }>;
-
-      // Actualizamos el carrito manteniendo ids, flags y tags locales
-      setCarrito((prev) => {
-        // por seguridad, si cambió el largo, no tocamos nada
-        if (!prev.length || prev.length !== itemsSrv.length) return prev;
-
-        return prev.map((it, idx) => {
-          const srv = itemsSrv[idx];
-          if (!srv) return it;
-
-          return {
-            ...it,
-            nombre: srv.nombre_producto ?? it.nombre,
-            precio:
-              typeof srv.precio_unitario === "number"
-                ? srv.precio_unitario
-                : it.precio,
-            exento: srv.exento_iva === 1,
-            esMayorista: srv.es_mayorista === 1,
-          };
-        });
-      });
-    } catch (err: any) {
-      console.error("Error al previsualizar precios POS:", err);
-      // Opcional: podrías setear un error suave, pero mejor no bloquear la venta
-      // setError(err?.response?.data?.error || "No se pudo sincronizar precios con el servidor.");
-    }
-  };
-
-
-  // ====================
-  // Teclado numérico cantidad
-  // ====================
-
-  const abrirTecladoCantidad = (itemId: string, cantidadActual: number) => {
-    setQtyEditingItemId(itemId);
-    setQtyBuffer(String(cantidadActual));
-    setQtyDialogOpen(true);
-  };
 
   const cerrarTecladoCantidad = () => {
     setQtyDialogOpen(false);
@@ -818,8 +751,8 @@ const handleCloseCantidadModal = () => {
     cantidad: it.cantidad,
     precio_unitario: it.precio,
     precio_final: it.precio * it.cantidad,
-    exento_iva: it.exento ? 1 : 0,
-    es_promo: it.esPromo ? 1 : 0,
+    exento_iva: (it.exento? 1 : 0) as 0 | 1,
+    es_promo: (it.esPromo ? 1 : 0) as 0 | 1,
   }));
 
   const pagosVoucher = pagos.map((p) => ({
@@ -1449,7 +1382,7 @@ const handleCloseCantidadModal = () => {
       <CalculadoraModalPOS
         open={calcOpen}
         onClose={() => setCalcOpen(false)}
-        onResult={(valor) => {
+        onResult={(_valor) => {
           // usar el resultado para llenar el monto de pago
           setCalcOpen(false);
         }}

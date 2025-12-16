@@ -6,7 +6,6 @@ import {
   Typography,
   FormControlLabel,
   Switch,
-  Grid,
   IconButton,
   InputAdornment,
   Fade,

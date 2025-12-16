@@ -25,9 +25,6 @@ import {
 
 import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
-import PaymentsIcon from "@mui/icons-material/Payments";
-import CreditCardIcon from "@mui/icons-material/CreditCard";
-import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 
 import { api } from "../../api/api";
 

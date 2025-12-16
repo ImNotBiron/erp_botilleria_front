@@ -20,7 +20,6 @@ interface CalculadoraModalPOSProps {
 export const CalculadoraModalPOS: React.FC<CalculadoraModalPOSProps> = ({
   open,
   onClose,
-  onResult,
 }) => {
   const [display, setDisplay] = useState<string>("0");
   const [prevValue, setPrevValue] = useState<number | null>(null);
@@ -107,14 +106,6 @@ export const CalculadoraModalPOS: React.FC<CalculadoraModalPOSProps> = ({
       if (prev.length <= 1) return "0";
       return prev.slice(0, -1);
     });
-  };
-
-  const handleUseResult = () => {
-    const value = parseFloat(display);
-    if (!isNaN(value) && onResult) {
-      onResult(Math.round(value));
-    }
-    onClose();
   };
 
   return (

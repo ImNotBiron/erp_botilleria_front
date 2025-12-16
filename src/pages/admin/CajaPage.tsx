@@ -96,11 +96,6 @@ const parseCLPToNumber = (value: string): number => {
   return numeric ? Number(numeric) : 0;
 };
 
-
-const formatFechaTime = (value: string | null | undefined) =>
-  value ? new Date(value).toLocaleString("es-CL") : "-";
-
-
 // Mensaje para diferencias de caja en el modal de cierre
 const getDiffMessage = (diff: number) => {
   if (diff === 0) {
