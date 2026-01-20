@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Botilleria El Paraiso</string>
+    <string name="title_activity_main">Botilleria El Paraiso</string>
+    <string name="package_name">cl.botilleriaelparaiso.app</string>
+    <string name="custom_url_scheme">cl.botilleriaelparaiso.app</string>
+</resources>

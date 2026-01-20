@@ -3,13 +3,23 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "eslint .",
-    "preview": "vite preview"
-  },
+ "scripts": {
+  "dev": "vite",
+
+  "build": "tsc -b && vite build",
+  "build:web": "tsc -b && vite build",
+  "build:android": "tsc -b && vite build --mode android",
+
+  "lint": "eslint .",
+  "preview": "vite preview",
+
+  "android:sync": "npx cap sync android",
+  "android:open": "npx cap open android"
+},
   "dependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/cli": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@mui/icons-material": "^7.3.5",

@@ -86,6 +86,14 @@ type Pago = {
   monto: number;
 };
 
+const formatMilesCL = (n: number) =>
+  new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(n);
+
+const parseMontoCLP = (s: string) => {
+  const digits = (s || "").replace(/\D/g, ""); 
+  return digits ? Number(digits) : 0;
+};
+
 
 const formatCLP = (value: number) =>
   new Intl.NumberFormat("es-CL", {
@@ -314,10 +322,15 @@ const handleAgregarProductoPorCodigo = async (
   setSuccess(null);
 
   const cod = codigo.trim();
+
+  // Si no hay código, igual refocus y salimos
   if (!cod) {
     refocusScanner();
     return;
   }
+
+  // ✅ Limpia SIEMPRE el input antes de hacer la búsqueda
+  setCodigo("");
 
   try {
     const prod = await buscarProductoPorCodigo(cod);
@@ -358,18 +371,17 @@ const handleAgregarProductoPorCodigo = async (
 
       return [...prev, nuevo];
     });
-
-    setCodigo("");
   } catch (err: any) {
     console.error(err);
     setError(
       err?.response?.data?.error ||
-        "No se pudo encontrar el producto para ese código."
+        `No se pudo encontrar el producto para el código: ${cod}`
     );
   } finally {
     refocusScanner();
   }
 };
+
 
    const handleEliminarItem = (id: string) => {
   setCarrito((prev) => {
@@ -555,7 +567,7 @@ const handleCloseCantidadModal = () => {
   // ====================
 
   const obtenerErrorPagoActual = (): string | null => {
-    const monto = Number(nuevoMontoPago);
+    const monto = parseMontoCLP(nuevoMontoPago);
     if (!monto || monto <= 0) return null; // no molestamos si no hay monto
 
     const saldoPendiente = total - totalPagos;
@@ -655,7 +667,7 @@ const handleCloseCantidadModal = () => {
 
   const handleAgregarPago = () => {
     setSuccess(null);
-    const monto = Number(nuevoMontoPago);
+    const monto = parseMontoCLP(nuevoMontoPago);
     if (!monto || monto <= 0) {
       setError("Ingresa un monto válido para el pago.");
       return;
@@ -1114,16 +1126,28 @@ const handleCloseCantidadModal = () => {
 
                 <TextField
                   size="small"
-                  type="number"
+                  type="text"
+                  inputMode="numeric"
                   placeholder="Monto"
                   value={nuevoMontoPago}
-                  onChange={(e) => setNuevoMontoPago(e.target.value)}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    const digits = raw.replace(/\D/g, "");
+
+                    if (!digits) {
+                      setNuevoMontoPago("");
+                      return;
+                    }
+
+                    // (opcional) limita largo para evitar montos gigantes
+                    const capped = digits.slice(0, 9); // hasta 999.999.999
+                    setNuevoMontoPago(formatMilesCL(Number(capped)));
+                  }}
                   fullWidth
                   error={!!errorPagoActual && !!nuevoMontoPago}
-                  helperText={
-                    !!nuevoMontoPago && errorPagoActual ? errorPagoActual : ""
-                  }
+                  helperText={!!nuevoMontoPago && errorPagoActual ? errorPagoActual : ""}
                 />
+
 
                 <Stack spacing={0.5}>
                   <Button

@@ -1,5 +1,5 @@
 // src/components/pos/QuantityModalPOS.tsx
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -24,6 +24,10 @@ export const QuantityModalPOS: React.FC<QuantityModalPOSProps> = ({
   onConfirm,
 }) => {
   const [valor, setValor] = useState<string>(String(initialValue));
+  const valorRef = useRef(valor);
+  useEffect(() => {
+    valorRef.current = valor;
+  }, [valor]);
 
   useEffect(() => {
     if (open) setValor(String(initialValue));
@@ -47,10 +51,59 @@ export const QuantityModalPOS: React.FC<QuantityModalPOSProps> = ({
   const limpiar = () => setValor("0");
 
   const aceptar = () => {
-    let num = Number(valor);
+    let num = Number(valorRef.current);
     if (!num || num < 1) num = 1;
     onConfirm(num);
   };
+
+  // ✅ Soporte de teclado físico (solo cuando open = true)
+  useEffect(() => {
+    if (!open) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      const k = e.key;
+
+      // cerrar
+      if (k === "Escape") {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+
+      // aceptar
+      if (k === "Enter") {
+        e.preventDefault();
+        aceptar();
+        return;
+      }
+
+      // limpiar
+      if (k === "c" || k === "C") {
+        e.preventDefault();
+        limpiar();
+        return;
+      }
+
+      // borrar
+      if (k === "Backspace") {
+        e.preventDefault();
+        borrar();
+        return;
+      }
+
+      // dígitos (incluye teclado numérico)
+      if (/^\d$/.test(k)) {
+        e.preventDefault();
+        agregarNumero(k);
+        return;
+      }
+    };
+
+    // capture=true para que funcione aunque haya foco en botones del Dialog
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, onClose]);
 
   const keypadStyle = {
     display: "grid",
@@ -109,7 +162,6 @@ export const QuantityModalPOS: React.FC<QuantityModalPOSProps> = ({
 
         {/* TECLADO */}
         <Box sx={keypadStyle}>
-          {/* 1–9 */}
           {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((n) => (
             <Button
               key={n}
@@ -121,7 +173,6 @@ export const QuantityModalPOS: React.FC<QuantityModalPOSProps> = ({
             </Button>
           ))}
 
-          {/* C – 0 – ⌫ */}
           <Button variant="outlined" color="warning" sx={btn} onClick={limpiar}>
             C
           </Button>
@@ -132,6 +183,10 @@ export const QuantityModalPOS: React.FC<QuantityModalPOSProps> = ({
             ⌫
           </Button>
         </Box>
+
+        <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
+          Tip: puedes usar teclado numérico · Enter = Aceptar · Esc = Cerrar
+        </Typography>
       </DialogContent>
 
       <DialogActions sx={{ p: 2 }}>

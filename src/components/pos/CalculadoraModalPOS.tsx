@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -14,7 +14,7 @@ type CalcOperator = "+" | "-" | "*" | "/";
 interface CalculadoraModalPOSProps {
   open: boolean;
   onClose: () => void;
-  onResult?: (valor: number) => void; // opcional: devolver resultado al POS
+  onResult?: (valor: number) => void; // (si luego quieres usarlo)
 }
 
 export const CalculadoraModalPOS: React.FC<CalculadoraModalPOSProps> = ({
@@ -26,6 +26,17 @@ export const CalculadoraModalPOS: React.FC<CalculadoraModalPOSProps> = ({
   const [operator, setOperator] = useState<CalcOperator | null>(null);
   const [resetOnNextDigit, setResetOnNextDigit] = useState<boolean>(false);
 
+  // Refs para que el teclado siempre use el estado más reciente (sin “stale closures”)
+  const displayRef = useRef(display);
+  const prevValueRef = useRef(prevValue);
+  const operatorRef = useRef(operator);
+  const resetRef = useRef(resetOnNextDigit);
+
+  useEffect(() => void (displayRef.current = display), [display]);
+  useEffect(() => void (prevValueRef.current = prevValue), [prevValue]);
+  useEffect(() => void (operatorRef.current = operator), [operator]);
+  useEffect(() => void (resetRef.current = resetOnNextDigit), [resetOnNextDigit]);
+
   useEffect(() => {
     if (open) {
       // reset al abrir
@@ -33,68 +44,91 @@ export const CalculadoraModalPOS: React.FC<CalculadoraModalPOSProps> = ({
       setPrevValue(null);
       setOperator(null);
       setResetOnNextDigit(false);
+
+      displayRef.current = "0";
+      prevValueRef.current = null;
+      operatorRef.current = null;
+      resetRef.current = false;
     }
   }, [open]);
 
+  const applyOperation = (left: number, op: CalcOperator, right: number): number => {
+    switch (op) {
+      case "+": return left + right;
+      case "-": return left - right;
+      case "*": return left * right;
+      case "/": return right === 0 ? left : left / right;
+    }
+  };
+
   const handleDigit = (digit: string) => {
     setDisplay((prev) => {
-      if (resetOnNextDigit || prev === "0") {
+      const shouldReset = resetRef.current;
+      let next = prev;
+
+      if (shouldReset || prev === "0") {
+        next = digit;
+        resetRef.current = false;
         setResetOnNextDigit(false);
-        return digit;
+      } else {
+        if (prev.length >= 9) return prev;
+        next = prev + digit;
       }
-      if (prev.length >= 9) return prev; // límite simple
-      return prev + digit;
+
+      displayRef.current = next;
+      return next;
     });
   };
 
-  const applyOperation = (
-    left: number,
-    op: CalcOperator,
-    right: number
-  ): number => {
-    switch (op) {
-      case "+":
-        return left + right;
-      case "-":
-        return left - right;
-      case "*":
-        return left * right;
-      case "/":
-        if (right === 0) return left; // evitar NaN
-        return left / right;
-      default:
-        return right;
-    }
-  };
-
   const handleOperatorClick = (op: CalcOperator) => {
-    const current = parseFloat(display) || 0;
+    const current = parseFloat(displayRef.current) || 0;
 
-    if (prevValue === null) {
+    if (prevValueRef.current === null) {
+      prevValueRef.current = current;
       setPrevValue(current);
-    } else if (operator) {
-      const result = applyOperation(prevValue, operator, current);
+    } else if (operatorRef.current) {
+      const result = applyOperation(prevValueRef.current, operatorRef.current, current);
+      prevValueRef.current = result;
       setPrevValue(result);
-      setDisplay(String(Math.round(result)));
+
+      const shown = String(Math.round(result));
+      displayRef.current = shown;
+      setDisplay(shown);
     }
 
+    operatorRef.current = op;
     setOperator(op);
+
+    resetRef.current = true;
     setResetOnNextDigit(true);
   };
 
   const handleEquals = () => {
-    const current = parseFloat(display) || 0;
+    const current = parseFloat(displayRef.current) || 0;
 
-    if (prevValue !== null && operator) {
-      const result = applyOperation(prevValue, operator, current);
-      setDisplay(String(Math.round(result)));
+    if (prevValueRef.current !== null && operatorRef.current) {
+      const result = applyOperation(prevValueRef.current, operatorRef.current, current);
+      const shown = String(Math.round(result));
+
+      displayRef.current = shown;
+      setDisplay(shown);
+
+      prevValueRef.current = null;
+      operatorRef.current = null;
       setPrevValue(null);
       setOperator(null);
+
+      resetRef.current = true;
       setResetOnNextDigit(true);
     }
   };
 
   const handleClear = () => {
+    displayRef.current = "0";
+    prevValueRef.current = null;
+    operatorRef.current = null;
+    resetRef.current = false;
+
     setDisplay("0");
     setPrevValue(null);
     setOperator(null);
@@ -103,10 +137,63 @@ export const CalculadoraModalPOS: React.FC<CalculadoraModalPOSProps> = ({
 
   const handleBackspace = () => {
     setDisplay((prev) => {
-      if (prev.length <= 1) return "0";
-      return prev.slice(0, -1);
+      let next = prev;
+      if (prev.length <= 1) next = "0";
+      else next = prev.slice(0, -1);
+
+      displayRef.current = next;
+      return next;
     });
   };
+
+  // ✅ Soporte teclado físico / numpad
+  useEffect(() => {
+    if (!open) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      const k = e.key;
+
+      if (k === "Escape") {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (k === "Enter" || k === "=") {
+        e.preventDefault();
+        handleEquals();
+        return;
+      }
+
+      if (k === "Backspace") {
+        e.preventDefault();
+        handleBackspace();
+        return;
+      }
+
+      if (k === "c" || k === "C") {
+        e.preventDefault();
+        handleClear();
+        return;
+      }
+
+      if (/^\d$/.test(k)) {
+        e.preventDefault();
+        handleDigit(k);
+        return;
+      }
+
+      // operadores (incluye keypad)
+      if (k === "+" || k === "-" || k === "*" || k === "/") {
+        e.preventDefault();
+        handleOperatorClick(k as CalcOperator);
+        return;
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [open, onClose]);
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
@@ -127,88 +214,36 @@ export const CalculadoraModalPOS: React.FC<CalculadoraModalPOSProps> = ({
           {display}
         </Box>
 
-        {/* TECLADO */}
-        <Box
-          sx={{
-            display: "grid",
-            gridTemplateColumns: "repeat(4, 1fr)",
-            gap: 1,
-          }}
-        >
-          {/* fila 1 */}
-          <Button variant="outlined" onClick={() => handleDigit("7")}>
-            7
-          </Button>
-          <Button variant="outlined" onClick={() => handleDigit("8")}>
-            8
-          </Button>
-          <Button variant="outlined" onClick={() => handleDigit("9")}>
-            9
-          </Button>
-          <Button variant="contained" onClick={() => handleOperatorClick("/")}>
-            ÷
-          </Button>
+        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 1 }}>
+          <Button variant="outlined" onClick={() => handleDigit("7")}>7</Button>
+          <Button variant="outlined" onClick={() => handleDigit("8")}>8</Button>
+          <Button variant="outlined" onClick={() => handleDigit("9")}>9</Button>
+          <Button variant="contained" onClick={() => handleOperatorClick("/")}>÷</Button>
 
-          {/* fila 2 */}
-          <Button variant="outlined" onClick={() => handleDigit("4")}>
-            4
-          </Button>
-          <Button variant="outlined" onClick={() => handleDigit("5")}>
-            5
-          </Button>
-          <Button variant="outlined" onClick={() => handleDigit("6")}>
-            6
-          </Button>
-          <Button variant="contained" onClick={() => handleOperatorClick("*")}>
-            ×
-          </Button>
+          <Button variant="outlined" onClick={() => handleDigit("4")}>4</Button>
+          <Button variant="outlined" onClick={() => handleDigit("5")}>5</Button>
+          <Button variant="outlined" onClick={() => handleDigit("6")}>6</Button>
+          <Button variant="contained" onClick={() => handleOperatorClick("*")}>×</Button>
 
-          {/* fila 3 */}
-          <Button variant="outlined" onClick={() => handleDigit("1")}>
-            1
-          </Button>
-          <Button variant="outlined" onClick={() => handleDigit("2")}>
-            2
-          </Button>
-          <Button variant="outlined" onClick={() => handleDigit("3")}>
-            3
-          </Button>
-          <Button variant="contained" onClick={() => handleOperatorClick("-")}>
-            −
-          </Button>
+          <Button variant="outlined" onClick={() => handleDigit("1")}>1</Button>
+          <Button variant="outlined" onClick={() => handleDigit("2")}>2</Button>
+          <Button variant="outlined" onClick={() => handleDigit("3")}>3</Button>
+          <Button variant="contained" onClick={() => handleOperatorClick("-")}>−</Button>
 
-          {/* fila 4 */}
-          <Button variant="outlined" color="warning" onClick={handleClear}>
-            C
-          </Button>
-          <Button variant="outlined" onClick={() => handleDigit("0")}>
-            0
-          </Button>
-          <Button variant="outlined" onClick={handleBackspace}>
-            ⌫
-          </Button>
-          <Button variant="contained" onClick={() => handleOperatorClick("+")}>
-            +
-          </Button>
+          <Button variant="outlined" color="warning" onClick={handleClear}>C</Button>
+          <Button variant="outlined" onClick={() => handleDigit("0")}>0</Button>
+          <Button variant="outlined" onClick={handleBackspace}>⌫</Button>
+          <Button variant="contained" onClick={() => handleOperatorClick("+")}>+</Button>
 
-          {/* fila 5 */}
-          <Button
-            variant="contained"
-            sx={{ gridColumn: "span 4" }}
-            onClick={handleEquals}
-          >
+          <Button variant="contained" sx={{ gridColumn: "span 4" }} onClick={handleEquals}>
             =
           </Button>
         </Box>
       </DialogContent>
 
       <DialogActions>
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{ flex: 1, pl: 2 }}
-        >
-          Usa esta funcion solo para realizar calculos.
+        <Typography variant="caption" color="text.secondary" sx={{ flex: 1, pl: 2 }}>
+          Tip: teclado numérico · Enter/= = resultado · Esc = cerrar
         </Typography>
         <Button onClick={onClose}>Cerrar</Button>
       </DialogActions>

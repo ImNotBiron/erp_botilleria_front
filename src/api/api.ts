@@ -6,10 +6,32 @@ export const api = axios.create({
   withCredentials: true,
 });
 
+/**
+ * 👉 Request interceptor
+ * Adjunta el JWT a cada request si existe
+ */
 api.interceptors.request.use((config) => {
   const token = useAuthStore.getState().token;
+
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+
   return config;
 });
+
+/**
+ * 👉 Response interceptor
+ * Si el token expira o es inválido → logout automático
+ */
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    if (error.response?.status === 401) {
+      await useAuthStore.getState().logout();
+      window.location.href = "/login";
+    }
+
+    return Promise.reject(error);
+  }
+);
