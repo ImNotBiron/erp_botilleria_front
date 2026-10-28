@@ -14,6 +14,7 @@ import {
   TextField,
   MenuItem,
   Stack,
+  CircularProgress,
 } from "@mui/material";
 
 import EditIcon from "@mui/icons-material/Edit";
@@ -30,6 +31,7 @@ export default function UsuariosPage() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [usuarioEditar, setUsuarioEditar] = useState<any>(null);
+  const [cargando, setCargando] = useState(true);
 
   // FILTROS
   const [busqueda, setBusqueda] = useState("");
@@ -38,11 +40,14 @@ export default function UsuariosPage() {
 
   const cargarUsuarios = async () => {
     try {
+      setCargando(true);
       const { data } = await usuariosApi.getUsuarios();
       setUsuarios(data);
       setUsuariosFiltrados(data);
-    } catch (err) {
-      console.error("Error cargando usuarios:", err);
+    } catch (error) {
+      console.error("Error cargando usuarios:", error);
+    }finally{
+      setCargando(false);
     }
   };
 
@@ -185,6 +190,24 @@ export default function UsuariosPage() {
 
       {/* TABLA */}
       <Paper sx={{ p: 2 }}>
+        {cargando ? (
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 2,
+        py: 8,
+      }}
+    >
+      <CircularProgress size={48} />
+      <Typography variant="h6" color="text.secondary">
+        Cargando usuarios...
+      </Typography>
+    </Box>
+  ) : (
+
         <Table>
           <TableHead>
             <TableRow>
@@ -240,6 +263,7 @@ export default function UsuariosPage() {
             )}
           </TableBody>
         </Table>
+  )}
       </Paper>
 
       <UsuarioModal

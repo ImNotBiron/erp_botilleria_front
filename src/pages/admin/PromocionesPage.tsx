@@ -13,6 +13,7 @@ import {
   TableRow,
   TextField,
   Typography,
+  CircularProgress,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
@@ -47,11 +48,20 @@ export default function PromocionesPage() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [promoEditar, setPromoEditar] = useState<any | null>(null);
+  const [cargando, setCargando] = useState(true);
 
   const cargarPromos = async () => {
-    const data = await promocionesApi.getAll();
-    setPromos(data);
-    setFiltradas(data);
+    try{
+      setCargando(true);
+      const data = await promocionesApi.getAll();
+      setPromos(data);
+      setFiltradas(data);
+    } catch(error) {
+      console.error("Error cargando promociones:", error);
+    }finally{
+      setCargando(false);
+    }
+    
   };
 
   const cargarProductos = async () => {
@@ -159,6 +169,24 @@ export default function PromocionesPage() {
       </Box>
 
       <Paper sx={{ width: "100%", overflowX: "auto" }}>
+        {cargando ? (
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 2,
+        py: 8,
+      }}
+    >
+      <CircularProgress size={48} />
+      <Typography variant="h6" color="text.secondary">
+        Cargando promociones...
+      </Typography>
+    </Box>
+  ) : (
+
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -235,6 +263,7 @@ export default function PromocionesPage() {
             )}
           </TableBody>
         </Table>
+         )}
       </Paper>
 
       <ComboModal

@@ -12,6 +12,7 @@ import {
   TextField,
   Chip,
   IconButton,
+  CircularProgress,
 } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
 import BlockIcon from "@mui/icons-material/Block";
@@ -40,10 +41,19 @@ export default function ProveedoresPage() {
     null
   );
 
+  const [cargando, setCargando] = useState(true); 
+
   const cargarProveedores = async () => {
-    const data = await proveedoresApi.getAll();
-    setProveedores(data);
-    setFiltrados(data);
+    try{
+      setCargando(true);
+      const data = await proveedoresApi.getAll();
+      setProveedores(data);
+      setFiltrados(data);
+    }catch(error){
+      console.log("Error cargando proveedores:", error)
+    }finally{
+    setCargando(false);
+    }
   };
 
   useEffect(() => {
@@ -139,6 +149,24 @@ export default function ProveedoresPage() {
       </Box>
 
       <Paper sx={{ width: "100%", overflowX: "auto" }}>
+        {cargando ? (
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 2,
+        py: 8,
+      }}
+    >
+      <CircularProgress size={48} />
+      <Typography variant="h6" color="text.secondary">
+        Cargando proveedores...
+      </Typography>
+    </Box>
+  ) : (
+
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -205,6 +233,7 @@ export default function ProveedoresPage() {
             )}
           </TableBody>
         </Table>
+  )}
       </Paper>
 
       {/* MODAL CREAR / EDITAR */}

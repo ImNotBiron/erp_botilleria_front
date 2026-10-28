@@ -12,6 +12,7 @@ import {
   TextField,
   Chip,
   IconButton,
+  CircularProgress,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
@@ -39,10 +40,19 @@ export default function CategoriasPage() {
     null
   );
 
+  const [cargando, setCargando] = useState(true);
+
   const cargarCategorias = async () => {
-    const data = await categoriasApi.getAll();
-    setCategorias(data);
-    setFiltradas(data);
+    try{
+      setCargando(true);
+      const data = await categoriasApi.getAll();
+      setCategorias(data);
+      setFiltradas(data);
+    }catch(error){
+     console.log("Error cargando categorias:", error)
+    }finally{
+     setCargando(false);
+    }
   };
 
   useEffect(() => {
@@ -121,6 +131,24 @@ export default function CategoriasPage() {
       </Box>
 
       <Paper sx={{ width: "100%", overflowX: "auto" }}>
+        {cargando ? (
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 2,
+        py: 8,
+      }}
+    >
+      <CircularProgress size={48} />
+      <Typography variant="h6" color="text.secondary">
+        Cargando categorias...
+      </Typography>
+    </Box>
+  ) : (
+
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -179,6 +207,7 @@ export default function CategoriasPage() {
             )}
           </TableBody>
         </Table>
+  )}
       </Paper>
 
       <CategoriaModal

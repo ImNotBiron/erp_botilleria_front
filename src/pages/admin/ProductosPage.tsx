@@ -13,6 +13,7 @@ import {
   TableBody,
   TextField,
   Chip,
+  CircularProgress,
 } from "@mui/material";
 
 import EditIcon from "@mui/icons-material/Edit";
@@ -44,16 +45,18 @@ export default function ProductosPage() {
 
   const [modalMayoristaOpen, setModalMayoristaOpen] = useState(false);
   const [productoMayorista, setProductoMayorista] = useState<any | null>(null);
-
-
+  const [cargando, setCargando] = useState(true);
 
   const cargarProductos = async () => {
     try {
+      setCargando(true);
       const data = await productosApi.getAll();
       setProductos(data);
       setFiltrados(data);
     } catch (error) {
       console.error("Error cargando productos:", error);
+    } finally {
+      setCargando(false);
     }
   };
 
@@ -178,6 +181,24 @@ const tieneMayorista = (p: any) =>
       </Box>
 
       <Paper sx={{ p: 2 }}>
+        {cargando ? (
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 2,
+        py: 8,
+      }}
+    >
+      <CircularProgress size={48} />
+      <Typography variant="h6" color="text.secondary">
+        Cargando productos...
+      </Typography>
+    </Box>
+  ) : (
+      
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -267,6 +288,7 @@ const tieneMayorista = (p: any) =>
             )}
           </TableBody>
         </Table>
+  )}
       </Paper>
       
       <ProductoMayoristaModal
