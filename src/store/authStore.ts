@@ -20,6 +20,7 @@ interface AuthState {
 
   login: (rut: string) => Promise<boolean>;
   logout: () => Promise<void>;
+  limpiarSesion: () => void; 
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -56,25 +57,32 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
+      // 👈 nuevo: limpia solo el estado local, sin llamar al backend
+      limpiarSesion: () => {
+        set({ isAuth: false, usuario: null, token: null });
+      },
+
+      // 👈 cambiado: limpia primero, avisa al backend después
       logout: async () => {
-        try {
-          const { token } = get();
-          if (token) {
-            await api.post("/auth/logout");
+        const { token } = get();
+
+        // 1. Limpiar local primero
+        get().limpiarSesion();
+
+        // 2. Avisar al backend con el token guardado a mano
+        if (token) {
+          try {
+            await api.post("/auth/logout", null, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+          } catch (error) {
+            console.warn("Logout backend error:", error);
           }
-        } catch (error) {
-          console.warn("Logout backend error:", error);
-        } finally {
-          set({
-            isAuth: false,
-            usuario: null,
-            token: null,
-          });
         }
       },
     }),
     {
-      name: "erp-auth", // storage key
+      name: "erp-auth",
     }
   )
 );

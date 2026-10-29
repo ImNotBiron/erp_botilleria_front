@@ -33,4 +33,10 @@ export const productosApi = {
     const res = await api.delete(`${base}/${id}`);
     return res.data;
   },
+
+  getPaginated: async (params: { page: number; limit: number; search?: string}) => {
+    const res = await api.get(base, {params});
+    return res.data as { data: any[]; total: number; page: number; limit: number};
+  },
+  
 };

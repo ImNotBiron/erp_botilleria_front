@@ -20,17 +20,29 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+let sesionExpirada = false;
+
 /**
  * 👉 Response interceptor
  * Si el token expira o es inválido → logout automático
  */
 api.interceptors.response.use(
   (response) => response,
-  async (error) => {
-    if (error.response?.status === 401) {
-      await useAuthStore.getState().logout();
-      window.location.href = "/login";
+   (error) => {
+    const status = error.response?.status;
+    const url: string = error.config?.url ?? "";
+    const esAuth = url.includes("/auth/login") || url.includes("/auth/logout");
+
+    if (status === 401 && !esAuth && !sesionExpirada){
+      sesionExpirada = true;
+
+      useAuthStore.getState().limpiarSesion();
+
+      if(window.location.pathname !== "/login"){
+        window.location.href = "/login";
+      }
     }
+   
 
     return Promise.reject(error);
   }
